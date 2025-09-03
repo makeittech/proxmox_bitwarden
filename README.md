@@ -41,6 +41,26 @@ When `/bwdata/env/global.override.env` is opened for editing, enter SMTP details
 
 ## Hacks & Troubleshooting
 
+### Storage Error: "storage does not support container directories"
+
+If you encounter the error `storage 'local' does not support container directories` during setup, this means the Proxmox storage doesn't have container support enabled.
+
+**Quick Fix:**
+```shell
+./fix_storage_containers.sh local
+```
+(Replace `local` with your storage name)
+
+**Manual Fix:**
+1. Open Proxmox web interface
+2. Go to Datacenter > Storage
+3. Click on your storage (e.g., `local`)
+4. In the 'Content' section, check the 'Container' checkbox
+5. Click 'OK' to save
+6. Run the setup script again
+
+### Changing Domain Name
+
 To change the domain name...
 
 ```shell

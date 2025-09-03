@@ -54,15 +54,21 @@ function configure_storage_for_containers() {
     echo -e "\n\e[36m=== Configuring Storage for Containers ===\e[39m"
     echo "To enable container support for storage '$storage_name':"
     echo ""
-    echo "1. Open Proxmox web interface in your browser"
-    echo "2. Navigate to: Datacenter > Storage"
-    echo "3. Click on storage: $storage_name"
-    echo "4. In the 'Content' section, check the 'Container' checkbox"
-    echo "5. Click 'OK' to save changes"
-    echo "6. Run this script again"
+    echo "OPTION 1 - Automatic fix (recommended):"
+    echo "  Run: ./fix_storage_containers.sh $storage_name"
     echo ""
-    echo "Alternative: Use command line (if you have access):"
-    echo "pvesm set $storage_name --content rootdir,vztmpl"
+    echo "OPTION 2 - Manual configuration via web interface:"
+    echo "  1. Open Proxmox web interface in your browser"
+    echo "  2. Navigate to: Datacenter > Storage"
+    echo "  3. Click on storage: $storage_name"
+    echo "  4. In the 'Content' section, check the 'Container' checkbox"
+    echo "  5. Click 'OK' to save changes"
+    echo "  6. Run this script again"
+    echo ""
+    echo "OPTION 3 - Manual command line (if you have access):"
+    echo "  pvesm set $storage_name --content rootdir,vztmpl"
+    echo ""
+    echo "After fixing the storage configuration, run this setup script again."
     echo -e "\e[36m============================================\e[39m\n"
 }
 
@@ -120,8 +126,9 @@ fi
 
 info "Found ${#STORAGE_LIST[@]} storage(s): ${STORAGE_LIST[*]}"
 
-# Filter out storages that are not accessible or don't support containers
-ACCESSIBLE_STORAGES=()
+# Filter storages and prioritize those with container support
+CONTAINER_STORAGES=()
+NON_CONTAINER_STORAGES=()
 info "Checking storage accessibility and container support..."
 
 for storage in "${STORAGE_LIST[@]}"; do
@@ -137,17 +144,26 @@ for storage in "${STORAGE_LIST[@]}"; do
     
     # Check if storage supports containers (has rootdir or vztmpl content type)
     if echo "$STORAGE_INFO" | grep -q "rootdir\|vztmpl"; then
-        info "Storage $storage supports containers"
-        ACCESSIBLE_STORAGES+=("$storage")
+        info "✅ Storage $storage supports containers"
+        CONTAINER_STORAGES+=("$storage")
     else
         # Storage exists but might not have container content type configured
-        # This is often a configuration issue, not an accessibility issue
-        warn "Storage $storage exists but container content type not configured"
+        warn "⚠️  Storage $storage exists but container content type not configured"
         warn "This storage can be configured for containers in Proxmox web interface"
-        # Still add it as potentially usable - the user can configure it
-        ACCESSIBLE_STORAGES+=("$storage")
+        NON_CONTAINER_STORAGES+=("$storage")
     fi
 done
+
+# Prioritize container-enabled storages
+if [ ${#CONTAINER_STORAGES[@]} -gt 0 ]; then
+    info "Found ${#CONTAINER_STORAGES[@]} storage(s) with container support: ${CONTAINER_STORAGES[*]}"
+    ACCESSIBLE_STORAGES=("${CONTAINER_STORAGES[@]}")
+else
+    warn "No storages found with container support enabled"
+    warn "Found ${#NON_CONTAINER_STORAGES[@]} storage(s) without container support: ${NON_CONTAINER_STORAGES[*]}"
+    warn "These storages will need to be configured for containers before use"
+    ACCESSIBLE_STORAGES=("${NON_CONTAINER_STORAGES[@]}")
+fi
 
 STORAGE_LIST=("${ACCESSIBLE_STORAGES[@]}")
 
@@ -216,14 +232,15 @@ info "Storage $STORAGE details: $STORAGE_DETAILS"
 
 # Check if storage supports containers
 if ! echo "$STORAGE_DETAILS" | grep -q "rootdir\|vztmpl"; then
-    warn "Storage $STORAGE does not have container content type configured"
-    warn "Required content types: rootdir or vztmpl"
-    warn "Available content types: $(echo "$STORAGE_DETAILS" | grep -o 'content: [^[:space:]]*' || echo 'none')"
-    warn ""
-    warn "This storage can be configured for containers in Proxmox web interface:"
+    error "Storage $STORAGE does not have container content type configured"
+    error "Required content types: rootdir or vztmpl"
+    error "Available content types: $(echo "$STORAGE_DETAILS" | grep -o 'content: [^[:space:]]*' || echo 'none')"
+    error ""
+    error "This storage MUST be configured for containers before proceeding:"
     configure_storage_for_containers "$STORAGE"
-    warn "Continuing with current configuration - you may need to configure the storage first"
-    # Don't fail here - let the user try to use it
+    error "The 'pct create' command will fail with 'storage does not support container directories' error"
+    error "without proper container content type configuration."
+    fatal "Storage $STORAGE is not configured for containers. Please enable container support and try again."
 fi
 
 # Check if we can list storage contents
