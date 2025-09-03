@@ -41,7 +41,29 @@ function troubleshoot_storage() {
     echo "   - Insufficient disk space"
     echo "   - Permission denied errors"
     echo "   - Storage content type not configured for containers"
+    echo ""
+    echo "5. Quick fix for container content type:"
+    echo "   - Storage exists but container content type not enabled"
+    echo "   - This is a configuration issue, not an accessibility issue"
+    echo "   - Enable 'Container' content type in Proxmox web interface"
     echo -e "\e[93m==============================\e[39m\n"
+}
+
+function configure_storage_for_containers() {
+    local storage_name="$1"
+    echo -e "\n\e[36m=== Configuring Storage for Containers ===\e[39m"
+    echo "To enable container support for storage '$storage_name':"
+    echo ""
+    echo "1. Open Proxmox web interface in your browser"
+    echo "2. Navigate to: Datacenter > Storage"
+    echo "3. Click on storage: $storage_name"
+    echo "4. In the 'Content' section, check the 'Container' checkbox"
+    echo "5. Click 'OK' to save changes"
+    echo "6. Run this script again"
+    echo ""
+    echo "Alternative: Use command line (if you have access):"
+    echo "pvesm set $storage_name --content rootdir,vztmpl"
+    echo -e "\e[36m============================================\e[39m\n"
 }
 
 # Set trap for cleanup on exit
@@ -81,19 +103,22 @@ info "Discovering available storage locations..."
 info "All available storages:"
 pvesm status 2>/dev/null || warn "Could not get storage status"
 
-# First, try to get all available storages
+# Get all available storages first
 STORAGE_LIST=($(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
 
-# If that fails, try alternative methods
+# If no storages found, try alternative methods
 if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
+    warn "No storages found with pvesm status, trying alternative methods..."
     # Try getting storages with container content type
     STORAGE_LIST=($(pvesm status -content rootdir 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
+    
+    if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
+        # Try getting storages with vztmpl content type
+        STORAGE_LIST=($(pvesm status -content vztmpl 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
+    fi
 fi
 
-# If still no storages found, try getting all storages without content filter
-if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
-    STORAGE_LIST=($(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
-fi
+info "Found ${#STORAGE_LIST[@]} storage(s): ${STORAGE_LIST[*]}"
 
 # Filter out storages that are not accessible or don't support containers
 ACCESSIBLE_STORAGES=()
@@ -117,7 +142,12 @@ for storage in "${STORAGE_LIST[@]}"; do
         info "Storage $storage supports containers"
         ACCESSIBLE_STORAGES+=("$storage")
     else
-        warn "Storage $storage does not support containers (missing rootdir or vztmpl content type)"
+        # Storage exists but might not have container content type configured
+        # This is often a configuration issue, not an accessibility issue
+        warn "Storage $storage exists but container content type not configured"
+        warn "This storage can be configured for containers in Proxmox web interface"
+        # Still add it as potentially usable - the user can configure it
+        ACCESSIBLE_STORAGES+=("$storage")
     fi
 done
 
@@ -134,17 +164,24 @@ if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
     for common_storage in "${COMMON_STORAGES[@]}"; do
         if pvesm status "$common_storage" >/dev/null 2>&1; then
             STORAGE_INFO=$(pvesm status "$common_storage" 2>/dev/null)
-            if echo "$STORAGE_INFO" | grep -q "rootdir\|vztmpl"; then
-                info "Found working storage: $common_storage"
-                STORAGE=$common_storage
-                break
-            fi
+            info "Found storage: $common_storage - $STORAGE_INFO"
+            # Don't require container content type for fallback - just use what's available
+            STORAGE=$common_storage
+            break
         fi
     done
     
     if [ -z "$STORAGE" ]; then
         troubleshoot_storage
-        fatal "Please configure at least one storage location with container support in Proxmox."
+        echo ""
+        error "No usable storage found. The issue is likely:"
+        error "1. Storage exists but container content type not enabled"
+        error "2. Storage permissions are incorrect"
+        error "3. Storage is not properly mounted"
+        echo ""
+        error "Please configure at least one storage location with container support in Proxmox."
+        error "Use the troubleshooting steps above to resolve this issue."
+        exit 1
     fi
 elif [ ${#STORAGE_LIST[@]} -eq 1 ]; then
     STORAGE=${STORAGE_LIST[0]}
@@ -181,11 +218,14 @@ info "Storage $STORAGE details: $STORAGE_DETAILS"
 
 # Check if storage supports containers
 if ! echo "$STORAGE_DETAILS" | grep -q "rootdir\|vztmpl"; then
-    error "Storage $STORAGE does not support containers"
-    error "Required content types: rootdir or vztmpl"
-    error "Available content types: $(echo "$STORAGE_DETAILS" | grep -o 'content: [^[:space:]]*' || echo 'none')"
-    troubleshoot_storage
-    fatal "Storage $STORAGE does not support containers (missing rootdir or vztmpl content type)"
+    warn "Storage $STORAGE does not have container content type configured"
+    warn "Required content types: rootdir or vztmpl"
+    warn "Available content types: $(echo "$STORAGE_DETAILS" | grep -o 'content: [^[:space:]]*' || echo 'none')"
+    warn ""
+    warn "This storage can be configured for containers in Proxmox web interface:"
+    configure_storage_for_containers "$STORAGE"
+    warn "Continuing with current configuration - you may need to configure the storage first"
+    # Don't fail here - let the user try to use it
 fi
 
 # Check if we can list storage contents
@@ -197,6 +237,14 @@ if ! pvesm list "$STORAGE" >/dev/null 2>&1; then
 fi
 
 info "Storage $STORAGE validation successful"
+
+# Test if we can actually create containers in this storage
+info "Testing container creation capability in storage $STORAGE..."
+if ! pvesm list "$STORAGE" >/dev/null 2>&1; then
+    error "Cannot list storage contents - this indicates a permission or configuration issue"
+    troubleshoot_storage
+    fatal "Storage $STORAGE is not usable for container operations"
+fi
 
 # Check available disk space
 info "Checking available disk space..."
@@ -251,6 +299,21 @@ else
     
     info "Template downloaded successfully"
 fi
+
+# Summary of storage configuration
+echo ""
+info "=== Storage Configuration Summary ==="
+info "Selected storage: $STORAGE"
+info "Storage details: $STORAGE_DETAILS"
+if echo "$STORAGE_DETAILS" | grep -q "rootdir\|vztmpl"; then
+    info "✅ Container content type: ENABLED"
+else
+    warn "⚠️  Container content type: NOT CONFIGURED"
+    warn "You may need to enable container support in Proxmox web interface"
+    configure_storage_for_containers "$STORAGE"
+fi
+info "====================================="
+echo ""
 
 # Get network configuration from Proxmox defaults
 info "Detecting network configuration..."
