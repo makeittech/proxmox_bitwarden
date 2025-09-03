@@ -344,7 +344,7 @@ pct create "${CONTAINER_ID}" "${TEMPLATE_LOCATION}" \
     -onboot 1 \
     -features nesting=1 \
     -hostname "${HOSTNAME}" \
-    -net0 name=${NET_INTERFACE},bridge=${NET_BRIDGE},dhcp=1 \
+    -net0 name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=dhcp \
     -ostype "${CONTAINER_OS_TYPE}" \
     -password "${HOSTPASS}" \
     -storage "${STORAGE}" || fatal "Failed to create LXC container!"
