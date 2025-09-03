@@ -77,6 +77,14 @@ IPV6_METHOD="none"
 IPV6_ADDR=""
 IPV6_GATE=""
 
+# Additional variables required by the build system
+timezone="$(cat /etc/timezone 2>/dev/null || echo 'UTC')"
+NEXTID="$(pvesh get /cluster/nextid 2>/dev/null || echo '100')"
+VERBOSE="no"
+DIAGNOSTICS="no"
+METHOD="default"
+BRIDGES=""
+
 # Network configuration (same as AdGuard script)
 msg_info "Detecting network configuration..."
 BRG=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -f1)
