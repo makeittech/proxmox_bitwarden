@@ -326,16 +326,51 @@ if [ -z "$NET_BRIDGE" ] || [[ ! "$NET_BRIDGE" =~ ^vmbr[0-9]+$ ]]; then
     warn "Could not detect network bridge, using default: $NET_BRIDGE"
 fi
 
-# Get IP configuration - try DHCP first, fallback to static
+# Get IP configuration
 info "Network interface: $NET_INTERFACE, Bridge: $NET_BRIDGE"
-info "IP configuration will use DHCP by default. You can configure static IP later in the container."
+echo -e "\nNetwork Configuration:"
+echo "Enter an IP address for the container, or type 'auto' for DHCP."
+read -p "IP Address (192.168.1.29 or auto): " IP_CONFIG
+
+# Configure network settings based on user input
+if [ -z "$IP_CONFIG" ]; then
+    IP_CONFIG="192.168.1.29"
+fi
+
+if [ "$IP_CONFIG" = "auto" ] || [ "$IP_CONFIG" = "dhcp" ]; then
+    info "Using DHCP for network configuration"
+    NETWORK_CONFIG="name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=dhcp"
+else
+    # For static IP, we need subnet mask and gateway
+    if [[ "$IP_CONFIG" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        # IP without subnet mask provided, ask for it
+        read -p "Subnet mask (24): " SUBNET_MASK
+        if [ -z "$SUBNET_MASK" ]; then
+            SUBNET_MASK="24"
+        fi
+        IP_WITH_SUBNET="${IP_CONFIG}/${SUBNET_MASK}"
+    else
+        # IP already includes subnet mask
+        IP_WITH_SUBNET="$IP_CONFIG"
+    fi
+    
+    # Ask for gateway
+    DEFAULT_GATEWAY=$(echo "$IP_CONFIG" | cut -d'.' -f1-3).1
+    read -p "Gateway ($DEFAULT_GATEWAY): " GATEWAY
+    if [ -z "$GATEWAY" ]; then
+        GATEWAY="$DEFAULT_GATEWAY"
+    fi
+    
+    info "Using static IP: $IP_WITH_SUBNET with gateway: $GATEWAY"
+    NETWORK_CONFIG="name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=${IP_WITH_SUBNET},gw=${GATEWAY}"
+fi
 
 # Create the container
 info "Creating LXC container..."
 CONTAINER_ARCH=$(dpkg --print-architecture)
 info "Using ARCH: ${CONTAINER_ARCH}"
 
-# Create container with DHCP network configuration
+# Create container with configured network settings
 pct create "${CONTAINER_ID}" "${TEMPLATE_LOCATION}" \
     -arch "${CONTAINER_ARCH}" \
     -cores 2 \
@@ -344,7 +379,7 @@ pct create "${CONTAINER_ID}" "${TEMPLATE_LOCATION}" \
     -onboot 1 \
     -features nesting=1 \
     -hostname "${HOSTNAME}" \
-    -net0 name=${NET_INTERFACE},bridge=${NET_BRIDGE},dhcp=1 \
+    -net0 ${NETWORK_CONFIG} \
     -ostype "${CONTAINER_OS_TYPE}" \
     -password "${HOSTPASS}" \
     -storage "${STORAGE}" || fatal "Failed to create LXC container!"

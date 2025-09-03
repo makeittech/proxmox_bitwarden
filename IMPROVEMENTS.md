@@ -61,7 +61,7 @@ NET_BRIDGE=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -
 
 ### DHCP Configuration
 ```bash
--net0 name=${NET_INTERFACE},bridge=${NET_BRIDGE},dhcp=1
+-net0 name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=dhcp
 ```
 
 ## Validation Results
