@@ -1,6 +1,6 @@
 #!/bin/bash -e
 
-STORAGE="local-lvm"
+STORAGE="local"
 
 # functions
 function fatal() {
