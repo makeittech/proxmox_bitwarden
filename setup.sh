@@ -1,468 +1,347 @@
 #!/bin/bash -e
 
-# functions
-function fatal() {
-    echo -e "\e[91m[FATAL] $1\e[39m"
-    exit 1
-}
-function error() {
-    echo -e "\e[91m[ERROR] $1\e[39m"
-}
-function warn() {
-    echo -e "\e[93m[WARNING] $1\e[39m"
-}
-function info() {
-    echo -e "\e[36m[INFO] $1\e[39m"
-}
-function cleanup() {
-    if [ -n "$TEMP_FOLDER_PATH" ] && [ -d "$TEMP_FOLDER_PATH" ]; then
-        popd >/dev/null 2>&1 || true
-        rm -rf "$TEMP_FOLDER_PATH"
-    fi
-}
+# Set error handling
+set -Eeuo pipefail
 
-function troubleshoot_storage() {
-    echo -e "\n\e[93m=== Storage Troubleshooting ===\e[39m"
-    echo "1. Check if Proxmox storage is properly configured:"
-    echo "   - Go to Datacenter > Storage in Proxmox web interface"
-    echo "   - Ensure at least one storage has 'Container' content type enabled"
-    echo "   - Common storage names: local, local-lvm, local-zfs"
-    echo ""
-    echo "2. Verify storage permissions:"
-    echo "   - Check if storage directories exist and are writable"
-    echo "   - Ensure Proxmox user has access to storage locations"
-    echo ""
-    echo "3. Check storage status:"
-    echo "   - Run: pvesm status"
-    echo "   - Look for storages with 'rootdir' or 'vztmpl' content types"
-    echo ""
-    echo "4. Common issues:"
-    echo "   - Storage not mounted or accessible"
-    echo "   - Insufficient disk space"
-    echo "   - Permission denied errors"
-    echo "   - Storage content type not configured for containers"
-    echo ""
-    echo "5. Quick fix for container content type:"
-    echo "   - Storage exists but container content type not enabled"
-    echo "   - This is a configuration issue, not an accessibility issue"
-    echo "   - Enable 'Container' content type in Proxmox web interface"
-    echo -e "\e[93m==============================\e[39m\n"
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Default configuration variables
+var_os="${var_os:-ubuntu}"
+var_version="${var_version:-22.04}"
+var_cpu="${var_cpu:-2}"
+var_ram="${var_ram:-4096}"
+var_disk="${var_disk:-50}"
+var_swap="${var_swap:-4096}"
+var_unprivileged="${var_unprivileged:-1}"
+
+# Message functions
+msg_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+msg_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+msg_warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
+msg_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# Error handler
+error_handler() {
+    local exit_code="$?"
+    local line_number="$1"
+    local command="$2"
+    msg_error "in line $line_number: exit code $exit_code: while executing command $command"
+    exit "$exit_code"
 }
 
-function configure_storage_for_containers() {
-    local storage_name="$1"
-    echo -e "\n\e[36m=== Configuring Storage for Containers ===\e[39m"
-    echo "To enable container support for storage '$storage_name':"
-    echo ""
-    echo "OPTION 1 - Automatic fix (recommended):"
-    echo "  Run: ./fix_storage_containers.sh $storage_name"
-    echo ""
-    echo "OPTION 2 - Manual configuration via web interface:"
-    echo "  1. Open Proxmox web interface in your browser"
-    echo "  2. Navigate to: Datacenter > Storage"
-    echo "  3. Click on storage: $storage_name"
-    echo "  4. In the 'Content' section, check the 'Container' checkbox"
-    echo "  5. Click 'OK' to save changes"
-    echo "  6. Run this script again"
-    echo ""
-    echo "OPTION 3 - Manual command line (if you have access):"
-    echo "  pvesm set $storage_name --content rootdir,vztmpl"
-    echo ""
-    echo "After fixing the storage configuration, run this setup script again."
-    echo -e "\e[36m============================================\e[39m\n"
-}
+# Set trap for error handling
+trap 'error_handler $LINENO "$BASH_COMMAND"' ERR
 
-# Set trap for cleanup on exit
-trap cleanup EXIT
-
-echo "###########################"
-echo "Setup : begin"
-echo "###########################"
-
-TEMP_FOLDER_PATH=$(mktemp -d)
-pushd "$TEMP_FOLDER_PATH" >/dev/null
-
-# Container configuration
-DEFAULT_HOSTNAME='vault-1'
-DEFAULT_PASSWORD='bitwarden'
-DEFAULT_CONTAINER_ID=$(pvesh get /cluster/nextid 2>/dev/null || echo "100")
-
-# Get user input for basic settings
-read -p "Enter a hostname (${DEFAULT_HOSTNAME}) : " HOSTNAME
-read -s -p "Enter a password (${DEFAULT_HOSTNAME}) : " HOSTPASS
-echo -e "\n"
-read -p "Enter a container ID (${DEFAULT_CONTAINER_ID}) : " CONTAINER_ID
-
-# Set defaults if no input provided
-HOSTNAME="${HOSTNAME:-${DEFAULT_HOSTNAME}}"
-HOSTPASS="${HOSTPASS:-${DEFAULT_PASSWORD}}"
-CONTAINER_ID="${CONTAINER_ID:-${DEFAULT_CONTAINER_ID}}"
-
-# Container OS configuration
-CONTAINER_OS_TYPE='ubuntu'
-CONTAINER_OS_VERSION='ubuntu-22.04-standard_22.04-1_amd64.tar.zst'
-
-# Discover available storage locations
-info "Discovering available storage locations..."
-
-# Debug: Show all available storages first
-info "All available storages:"
-pvesm status 2>/dev/null || warn "Could not get storage status"
-
-# Get all available storages first
-STORAGE_LIST=($(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
-
-# If no storages found, try alternative methods
-if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
-    warn "No storages found with pvesm status, trying alternative methods..."
-    # Try getting storages with container content type
-    STORAGE_LIST=($(pvesm status -content rootdir 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
-    
-    if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
-        # Try getting storages with vztmpl content type
-        STORAGE_LIST=($(pvesm status -content vztmpl 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$'))
-    fi
-fi
-
-info "Found ${#STORAGE_LIST[@]} storage(s): ${STORAGE_LIST[*]}"
-
-# Filter storages and prioritize those with container support
-CONTAINER_STORAGES=()
-NON_CONTAINER_STORAGES=()
-info "Checking storage accessibility and container support..."
-
-for storage in "${STORAGE_LIST[@]}"; do
-    info "Checking storage: $storage"
-    
-    # Check if storage is accessible and get details
-    STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$storage[[:space:]]")
-    if [ -z "$STORAGE_INFO" ]; then
-        warn "Storage $storage is not accessible"
-        continue
-    fi
-    info "Storage $storage details: $STORAGE_INFO"
-    
-    # Check if storage supports containers (has rootdir or vztmpl content type)
-    if echo "$STORAGE_INFO" | grep -q "rootdir\|vztmpl"; then
-        info "✅ Storage $storage supports containers"
-        CONTAINER_STORAGES+=("$storage")
-    else
-        # Storage exists but might not have container content type configured
-        warn "⚠️  Storage $storage exists but container content type not configured"
-        warn "This storage can be configured for containers in Proxmox web interface"
-        NON_CONTAINER_STORAGES+=("$storage")
-    fi
-done
-
-# Prioritize container-enabled storages
-if [ ${#CONTAINER_STORAGES[@]} -gt 0 ]; then
-    info "Found ${#CONTAINER_STORAGES[@]} storage(s) with container support: ${CONTAINER_STORAGES[*]}"
-    ACCESSIBLE_STORAGES=("${CONTAINER_STORAGES[@]}")
-else
-    warn "No storages found with container support enabled"
-    warn "Found ${#NON_CONTAINER_STORAGES[@]} storage(s) without container support: ${NON_CONTAINER_STORAGES[*]}"
-    warn "These storages will need to be configured for containers before use"
-    ACCESSIBLE_STORAGES=("${NON_CONTAINER_STORAGES[@]}")
-fi
-
-STORAGE_LIST=("${ACCESSIBLE_STORAGES[@]}")
-
-if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
-    error "No accessible storage locations found. Available storages:"
-    pvesm status 2>/dev/null || error "Could not get storage status"
-    
-    # Try common storage names as fallback
-    info "Trying common storage names as fallback..."
-    COMMON_STORAGES=("local" "local-lvm" "local-zfs" "pve" "storage")
-    
-    for common_storage in "${COMMON_STORAGES[@]}"; do
-        STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$common_storage[[:space:]]")
-        if [ -n "$STORAGE_INFO" ]; then
-            info "Found storage: $common_storage - $STORAGE_INFO"
-            # Don't require container content type for fallback - just use what's available
-            STORAGE=$common_storage
-            break
-        fi
-    done
-    
-    if [ -z "$STORAGE" ]; then
-        troubleshoot_storage
-        echo ""
-        error "No usable storage found. The issue is likely:"
-        error "1. Storage exists but container content type not enabled"
-        error "2. Storage permissions are incorrect"
-        error "3. Storage is not properly mounted"
-        echo ""
-        error "Please configure at least one storage location with container support in Proxmox."
-        error "Use the troubleshooting steps above to resolve this issue."
+# Prerequisites check
+check_prerequisites() {
+    # Check if running as root
+    if [[ "$(id -u)" -ne 0 ]]; then
+        msg_error "This script must be run as root"
         exit 1
     fi
-elif [ ${#STORAGE_LIST[@]} -eq 1 ]; then
-    STORAGE=${STORAGE_LIST[0]}
-    info "Using single storage location: $STORAGE"
-else
-    info "Multiple storage locations detected:"
-    PS3="Select storage location to use: "
-    select storage_item in "${STORAGE_LIST[@]}"; do
-        if [[ " ${STORAGE_LIST[*]} " =~ " ${storage_item} " ]]; then
-            STORAGE=$storage_item
-            break
+    
+    # Check if running on Proxmox
+    if ! command -v pct >/dev/null 2>&1; then
+        msg_error "This script must be run on a Proxmox VE host"
+        exit 1
+    fi
+    
+    # Check Proxmox version
+    local pve_version
+    pve_version=$(pveversion | awk -F'/' '{print $2}' | awk -F'-' '{print $1}')
+    if [[ ! "$pve_version" =~ ^[89]\. ]]; then
+        msg_warn "Proxmox VE version $pve_version detected. This script is tested with versions 8.x and 9.x"
+    fi
+}
+
+# Storage selection function
+select_storage() {
+    local content_type="$1"
+    local content_label="$2"
+    
+    msg_info "Selecting storage for $content_label..."
+    
+    # Get available storages for the content type
+    local -a available_storages
+    mapfile -t available_storages < <(pvesm status -content "$content_type" 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$')
+    
+    if [ ${#available_storages[@]} -eq 0 ]; then
+        msg_error "No storage found for content type '$content_type'"
+        return 1
+    fi
+    
+    if [ ${#available_storages[@]} -eq 1 ]; then
+        echo "${available_storages[0]}"
+        return 0
+    fi
+    
+    # Multiple storages - let user choose
+    echo "Available storages for $content_label:"
+    select storage in "${available_storages[@]}"; do
+        if [[ -n "$storage" ]]; then
+            echo "$storage"
+            return 0
         fi
         echo "Invalid selection. Please try again."
     done
-fi
+}
 
-info "Selected storage: $STORAGE"
-
-# Validate storage accessibility more thoroughly
-info "Validating storage accessibility for: $STORAGE"
-
-# Check if storage exists and is accessible
-STORAGE_DETAILS=$(pvesm status 2>/dev/null | grep "^$STORAGE[[:space:]]")
-if [ -z "$STORAGE_DETAILS" ]; then
-    error "Storage $STORAGE not found in available storages"
-    error "Available storages:"
-    pvesm status 2>/dev/null || error "Could not get storage status"
-    troubleshoot_storage
-    fatal "Storage $STORAGE is not accessible"
-fi
-
-# Display storage details
-info "Storage $STORAGE details: $STORAGE_DETAILS"
-
-# Check if storage supports containers
-if ! echo "$STORAGE_DETAILS" | grep -q "rootdir\|vztmpl"; then
-    error "Storage $STORAGE does not have container content type configured"
-    error "Required content types: rootdir or vztmpl"
-    error "Available content types: $(echo "$STORAGE_DETAILS" | grep -o 'content: [^[:space:]]*' || echo 'none')"
-    error ""
-    error "This storage MUST be configured for containers before proceeding:"
-    configure_storage_for_containers "$STORAGE"
-    error "The 'pct create' command will fail with 'storage does not support container directories' error"
-    error "without proper container content type configuration."
-    fatal "Storage $STORAGE is not configured for containers. Please enable container support and try again."
-fi
-
-# Check if we can list storage contents
-if ! pvesm list "$STORAGE" >/dev/null 2>&1; then
-    error "Cannot list contents of storage $STORAGE"
-    error "Storage might be read-only or have permission issues"
-    troubleshoot_storage
-    fatal "Cannot access storage $STORAGE contents"
-fi
-
-info "Storage $STORAGE validation successful"
-
-# Test if we can actually create containers in this storage
-info "Testing container creation capability in storage $STORAGE..."
-if ! pvesm list "$STORAGE" >/dev/null 2>&1; then
-    error "Cannot list storage contents - this indicates a permission or configuration issue"
-    troubleshoot_storage
-    fatal "Storage $STORAGE is not usable for container operations"
-fi
-
-# Check available disk space
-info "Checking available disk space..."
-if command -v df >/dev/null 2>&1; then
-    # Get storage path and check space
-    STORAGE_PATH=$(echo "$STORAGE_DETAILS" | grep -o 'path: [^[:space:]]*' | cut -d' ' -f2)
-    if [ -n "$STORAGE_PATH" ] && [ -d "$STORAGE_PATH" ]; then
-        AVAILABLE_SPACE=$(df -BG "$STORAGE_PATH" | awk 'NR==2 {print $4}' | sed 's/G//')
-        if [ -n "$AVAILABLE_SPACE" ] && [ "$AVAILABLE_SPACE" -lt 10 ]; then
-            warn "Low disk space: ${AVAILABLE_SPACE}G available. At least 10G recommended for container creation."
-        else
-            info "Available disk space: ${AVAILABLE_SPACE}G"
+# Template management
+manage_template() {
+    local template_storage="$1"
+    local os_type="$2"
+    local os_version="$3"
+    
+    msg_info "Managing template for $os_type $os_version..."
+    
+    # Update template list
+    pveam update >/dev/null 2>&1 || msg_warn "Failed to update template list"
+    
+    # Search for template
+    local template_pattern
+    case "$os_type" in
+        ubuntu|debian) template_pattern="-standard_" ;;
+        *) template_pattern="-default_" ;;
+    esac
+    
+    local template
+    template=$(pveam available -section system 2>/dev/null | grep "${os_type}-${os_version}${template_pattern}" | tail -1)
+    
+    if [[ -z "$template" ]]; then
+        msg_error "No template found for $os_type $os_version"
+        return 1
+    fi
+    
+    msg_info "Found template: $template"
+    
+    # Check if template exists locally
+    if ! pvesm list "$template_storage" | grep -q "$template"; then
+        msg_info "Downloading template to $template_storage..."
+        if ! pveam download "$template_storage" "$template" >/dev/null 2>&1; then
+            msg_error "Failed to download template"
+            return 1
         fi
     fi
-fi
-
-# Check if template exists, download if not
-TEMPLATE_LOCATION="${STORAGE}:vztmpl/${CONTAINER_OS_VERSION}"
-info "Checking template availability: ${TEMPLATE_LOCATION}"
-
-# Storage accessibility was already validated above, no need to check again
-
-# Check if template exists in storage
-info "Checking for template $CONTAINER_OS_VERSION in storage $STORAGE..."
-
-# First, try to list the storage contents
-if ! pvesm list "$STORAGE" >/dev/null 2>&1; then
-    fatal "Cannot access storage $STORAGE contents"
-fi
-
-# Check if template exists
-if pvesm list "$STORAGE" | grep -q "$CONTAINER_OS_VERSION"; then
-    info "Template $CONTAINER_OS_VERSION found in storage $STORAGE"
-else
-    info "Template $CONTAINER_OS_VERSION not found in storage $STORAGE. Downloading..."
     
-    # Update available templates
-    info "Updating available templates..."
-    if ! pveam update >/dev/null 2>&1; then
-        warn "Failed to update template list, continuing anyway..."
+    echo "$template"
+}
+
+# Container creation
+create_container() {
+    local ctid="$1"
+    local template_storage="$2"
+    local container_storage="$3"
+    local template="$4"
+    
+    msg_info "Creating LXC container $ctid..."
+    
+    # Set features based on container type
+    local features="nesting=1"
+    if [[ "${var_unprivileged:-1}" == "1" ]]; then
+        features="keyctl=1,nesting=1"
     fi
     
-    # Download the specific Ubuntu 22.04 template
-    info "Downloading template $CONTAINER_OS_VERSION to storage $STORAGE..."
-    if ! pveam download "$STORAGE" "$CONTAINER_OS_VERSION" >/dev/null 2>&1; then
-        error "Failed to download template $CONTAINER_OS_VERSION to storage $STORAGE"
-        troubleshoot_storage
-        fatal "Template download failed. Check storage accessibility and available space."
+    # Create container
+    if ! pct create "$ctid" "${template_storage}:vztmpl/${template}" \
+        -arch "$(dpkg --print-architecture)" \
+        -cores "${var_cpu:-2}" \
+        -memory "${var_ram:-4096}" \
+        -swap "${var_swap:-4096}" \
+        -onboot 1 \
+        -features "$features" \
+        -hostname "${HOSTNAME}" \
+        -net0 "name=eth0,bridge=${BRG},ip=${NET}${GATE}" \
+        -ostype "${var_os:-ubuntu}" \
+        -password "${HOSTPASS}" \
+        -storage "$container_storage" \
+        -rootfs "${container_storage}:${var_disk:-50}"; then
+        msg_error "Failed to create container"
+        return 1
     fi
     
-    info "Template downloaded successfully"
-fi
+    msg_ok "Container created successfully"
+}
 
-# Summary of storage configuration
-echo ""
-info "=== Storage Configuration Summary ==="
-info "Selected storage: $STORAGE"
-info "Storage details: $STORAGE_DETAILS"
-if echo "$STORAGE_DETAILS" | grep -q "rootdir\|vztmpl"; then
-    info "✅ Container content type: ENABLED"
-else
-    warn "⚠️  Container content type: NOT CONFIGURED"
-    warn "You may need to enable container support in Proxmox web interface"
-    configure_storage_for_containers "$STORAGE"
-fi
-info "====================================="
-echo ""
-
-# Get network configuration from Proxmox defaults
-info "Detecting network configuration..."
-NET_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
-if [ -z "$NET_INTERFACE" ]; then
-    NET_INTERFACE="eth0"
-    warn "Could not detect network interface, using default: $NET_INTERFACE"
-fi
-
-# Get default bridge (usually vmbr0)
-NET_BRIDGE=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -f1)
-if [ -z "$NET_BRIDGE" ] || [[ ! "$NET_BRIDGE" =~ ^vmbr[0-9]+$ ]]; then
-    NET_BRIDGE="vmbr0"
-    warn "Could not detect network bridge, using default: $NET_BRIDGE"
-fi
-
-# Get IP configuration
-info "Network interface: $NET_INTERFACE, Bridge: $NET_BRIDGE"
-echo -e "\nNetwork Configuration:"
-echo "Enter an IP address for the container, or type 'auto' for DHCP."
-read -p "IP Address (192.168.1.29 or auto): " IP_CONFIG
-
-# Configure network settings based on user input
-if [ -z "$IP_CONFIG" ]; then
-    IP_CONFIG="192.168.1.29"
-fi
-
-if [ "$IP_CONFIG" = "auto" ] || [ "$IP_CONFIG" = "dhcp" ]; then
-    info "Using DHCP for network configuration"
-    NETWORK_CONFIG="name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=dhcp"
-else
-    # For static IP, we need subnet mask and gateway
-    if [[ "$IP_CONFIG" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-        # IP without subnet mask provided, ask for it
-        read -p "Subnet mask (24): " SUBNET_MASK
-        if [ -z "$SUBNET_MASK" ]; then
-            SUBNET_MASK="24"
-        fi
-        IP_WITH_SUBNET="${IP_CONFIG}/${SUBNET_MASK}"
+# Main execution
+main() {
+    echo "###########################"
+    echo "Bitwarden Setup Script"
+    echo "###########################"
+    
+    # Check prerequisites
+    check_prerequisites
+    
+    # Get user input
+    read -p "Enter hostname (vault-1): " HOSTNAME
+    read -s -p "Enter password (bitwarden): " HOSTPASS
+    echo -e "\n"
+    read -p "Enter container ID (auto): " CONTAINER_ID
+    
+    # Set defaults
+    HOSTNAME="${HOSTNAME:-vault-1}"
+    HOSTPASS="${HOSTPASS:-bitwarden}"
+    CONTAINER_ID="${CONTAINER_ID:-$(pvesh get /cluster/nextid 2>/dev/null || echo "100")}"
+    
+    # Validate container ID
+    if [[ ! "$CONTAINER_ID" =~ ^[0-9]+$ ]] || [ "$CONTAINER_ID" -lt 100 ]; then
+        msg_error "Container ID must be a number >= 100"
+        exit 1
+    fi
+    
+    # Check if ID is in use
+    if qm status "$CONTAINER_ID" &>/dev/null || pct status "$CONTAINER_ID" &>/dev/null; then
+        msg_error "Container ID $CONTAINER_ID is already in use"
+        exit 1
+    fi
+    
+    # Network configuration
+    msg_info "Detecting network configuration..."
+    BRG=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -f1)
+    if [[ -z "$BRG" ]] || [[ ! "$BRG" =~ ^vmbr[0-9]+$ ]]; then
+        BRG="vmbr0"
+        msg_warn "Using default bridge: $BRG"
+    fi
+    
+    # Get IP configuration
+    echo -e "\nNetwork Configuration:"
+    read -p "IP Address (192.168.1.29 or auto): " IP_CONFIG
+    IP_CONFIG="${IP_CONFIG:-192.168.1.29}"
+    
+    if [[ "$IP_CONFIG" == "auto" || "$IP_CONFIG" == "dhcp" ]]; then
+        msg_info "Using DHCP"
+        NET="ip=dhcp"
+        GATE=""
     else
-        # IP already includes subnet mask
-        IP_WITH_SUBNET="$IP_CONFIG"
+        read -p "Subnet mask (24): " SUBNET_MASK
+        SUBNET_MASK="${SUBNET_MASK:-24}"
+        IP_WITH_SUBNET="${IP_CONFIG}/${SUBNET_MASK}"
+        
+        DEFAULT_GATEWAY=$(echo "$IP_CONFIG" | cut -d'.' -f1-3).1
+        read -p "Gateway ($DEFAULT_GATEWAY): " GATEWAY
+        GATEWAY="${GATEWAY:-$DEFAULT_GATEWAY}"
+        
+        NET="ip=$IP_WITH_SUBNET"
+        GATE=",gw=$GATEWAY"
     fi
     
-    # Ask for gateway
-    DEFAULT_GATEWAY=$(echo "$IP_CONFIG" | cut -d'.' -f1-3).1
-    read -p "Gateway ($DEFAULT_GATEWAY): " GATEWAY
-    if [ -z "$GATEWAY" ]; then
-        GATEWAY="$DEFAULT_GATEWAY"
+    # Storage selection
+    msg_info "Selecting storage locations..."
+    
+    TEMPLATE_STORAGE=$(select_storage "vztmpl" "templates")
+    if [[ $? -ne 0 ]]; then
+        msg_error "Failed to select template storage"
+        exit 1
     fi
     
-    info "Using static IP: $IP_WITH_SUBNET with gateway: $GATEWAY"
-    NETWORK_CONFIG="name=${NET_INTERFACE},bridge=${NET_BRIDGE},ip=${IP_WITH_SUBNET},gw=${GATEWAY}"
-fi
+    CONTAINER_STORAGE=$(select_storage "rootdir" "containers")
+    if [[ $? -ne 0 ]]; then
+        msg_error "Failed to select container storage"
+        exit 1
+    fi
+    
+    msg_ok "Template storage: $TEMPLATE_STORAGE"
+    msg_ok "Container storage: $CONTAINER_STORAGE"
+    
+    # Template management
+    TEMPLATE=$(manage_template "$TEMPLATE_STORAGE" "${var_os:-ubuntu}" "${var_version:-22.04}")
+    if [[ $? -ne 0 ]]; then
+        msg_error "Failed to manage template"
+        exit 1
+    fi
+    
+    # Create container
+    if ! create_container "$CONTAINER_ID" "$TEMPLATE_STORAGE" "$CONTAINER_STORAGE" "$TEMPLATE"; then
+        exit 1
+    fi
+    
+    # Start container
+    msg_info "Starting container..."
+    pct start "$CONTAINER_ID" || {
+        msg_error "Failed to start container"
+        exit 1
+    }
+    
+    # Wait for container to be ready
+    msg_info "Waiting for container to be ready..."
+    for i in {1..30}; do
+        if pct status "$CONTAINER_ID" | grep -q "status: running"; then
+            break
+        fi
+        sleep 1
+        if [ "$i" -eq 30 ]; then
+            msg_error "Container failed to start"
+            exit 1
+        fi
+    done
+    
+    # Wait for network
+    msg_info "Waiting for network..."
+    for i in {1..30}; do
+        if pct exec "$CONTAINER_ID" -- ping -c1 -W1 8.8.8.8 >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+        if [ "$i" -eq 30 ]; then
+            msg_warn "Network not ready, continuing anyway"
+        fi
+    done
+    
+    # Setup OS
+    msg_info "Setting up OS..."
+    pct exec "$CONTAINER_ID" -- bash -c "
+        apt-get update >/dev/null 2>&1
+        apt-get install -y curl wget gnupg2 software-properties-common >/dev/null 2>&1
+        timedatectl set-timezone UTC >/dev/null 2>&1
+        locale-gen en_US.UTF-8 >/dev/null 2>&1
+        update-locale LANG=en_US.UTF-8 >/dev/null 2>&1
+    " || msg_warn "OS setup had some issues"
+    
+    # Setup Docker
+    msg_info "Setting up Docker..."
+    pct exec "$CONTAINER_ID" -- bash -c "
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+        echo 'deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu jammy stable' > /etc/apt/sources.list.d/docker.list
+        apt-get update >/dev/null 2>&1
+        apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin >/dev/null 2>&1
+        systemctl enable docker >/dev/null 2>&1
+        systemctl start docker >/dev/null 2>&1
+    " || msg_warn "Docker setup had some issues"
+    
+    # Setup Bitwarden
+    msg_info "Setting up Bitwarden..."
+    pct exec "$CONTAINER_ID" -- bash -c "
+        mkdir -p /opt/bitwarden
+        cd /opt/bitwarden
+        curl -Lso bitwarden.sh https://func.bitwarden.com/api/dl/?app=self-host >/dev/null 2>&1
+        chmod +x bitwarden.sh
+        ./bitwarden.sh install --acceptlicense >/dev/null 2>&1
+    " || msg_warn "Bitwarden setup had some issues"
+    
+    # Final restart
+    msg_info "Final container restart..."
+    pct reboot "$CONTAINER_ID"
+    
+    # Wait for restart
+    sleep 15
+    
+    msg_ok "Setup complete!"
+    msg_info "Container ID: $CONTAINER_ID"
+    msg_info "Hostname: $HOSTNAME"
+    if [[ "$IP_CONFIG" != "auto" && "$IP_CONFIG" != "dhcp" ]]; then
+        msg_info "Access Bitwarden at: http://$IP_CONFIG:8080"
+    else
+        msg_info "Container is using DHCP. Check Proxmox interface for assigned IP."
+    fi
+    
+    echo "###########################"
+    echo "Setup : complete"
+    echo "###########################"
+}
 
-# Create the container
-info "Creating LXC container..."
-CONTAINER_ARCH=$(dpkg --print-architecture)
-info "Using ARCH: ${CONTAINER_ARCH}"
-
-# Create container with configured network settings
-pct create "${CONTAINER_ID}" "${TEMPLATE_LOCATION}" \
-    -arch "${CONTAINER_ARCH}" \
-    -cores 2 \
-    -memory 4096 \
-    -swap 4096 \
-    -onboot 1 \
-    -features nesting=1 \
-    -hostname "${HOSTNAME}" \
-    -net0 ${NETWORK_CONFIG} \
-    -ostype "${CONTAINER_OS_TYPE}" \
-    -password "${HOSTPASS}" \
-    -storage "${STORAGE}" || fatal "Failed to create LXC container!"
-
-# Configure container
-info "Configuring LXC container..."
-pct resize "${CONTAINER_ID}" rootfs 50G || fatal "Failed to expand root volume!"
-
-# Start container
-info "Starting LXC container..."
-pct start "${CONTAINER_ID}" || fatal "Failed to start container!"
-
-# Wait for container to be fully running
-info "Waiting for container to be ready..."
-sleep 10
-
-# Check container status
-CONTAINER_STATUS=$(pct status "$CONTAINER_ID" 2>/dev/null | grep -o "status: [a-z]*" | cut -d' ' -f2)
-if [ "$CONTAINER_STATUS" != "running" ]; then
-    warn "Container status: $CONTAINER_STATUS"
-    fatal "Container ${CONTAINER_ID} is not running properly!"
-fi
-
-info "Container is running successfully"
-
-# Setup OS
-info "Fetching and executing OS setup script..."
-wget -qL https://raw.githubusercontent.com/noofny/proxmox_bitwarden/master/setup_os.sh || \
-    fatal "Failed to download setup_os.sh"
-pct push "${CONTAINER_ID}" ./setup_os.sh /setup_os.sh -perms 755
-pct exec "${CONTAINER_ID}" -- bash -c "/setup_os.sh" || warn "OS setup script had issues"
-pct reboot "${CONTAINER_ID}"
-
-# Wait for container to come back up
-info "Waiting for container to restart..."
-sleep 15
-
-# Setup docker
-info "Fetching and executing Docker setup script..."
-wget -qL https://raw.githubusercontent.com/noofny/proxmox_bitwarden/master/setup_docker.sh || \
-    fatal "Failed to download setup_docker.sh"
-pct push "${CONTAINER_ID}" ./setup_docker.sh /setup_docker.sh -perms 755
-pct exec "${CONTAINER_ID}" -- bash -c "/setup_docker.sh" || warn "Docker setup script had issues"
-pct reboot "${CONTAINER_ID}"
-
-# Wait for container to come back up
-info "Waiting for container to restart..."
-sleep 15
-
-# Setup Bitwarden
-info "Fetching and executing Bitwarden setup script..."
-wget -qL https://raw.githubusercontent.com/noofny/proxmox_bitwarden/master/setup_bitwarden.sh || \
-    fatal "Failed to download setup_bitwarden.sh"
-pct push "${CONTAINER_ID}" ./setup_bitwarden.sh /setup_bitwarden.sh -perms 755
-pct exec "${CONTAINER_ID}" -- bash -c "/setup_bitwarden.sh" || warn "Bitwarden setup script had issues"
-
-# Final reboot
-info "Final container restart..."
-pct reboot "${CONTAINER_ID}"
-
-info "Container and app setup complete! Container will restart."
-info "Container ID: $CONTAINER_ID"
-info "Hostname: $HOSTNAME"
-info "Storage: $STORAGE"
-info "Network: $NET_INTERFACE on $NET_BRIDGE"
-
-echo "###########################"
-echo "Setup : complete"
-echo "###########################"
+# Run main function
+main "$@"
