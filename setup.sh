@@ -25,13 +25,13 @@ root_check
 pve_check
 
 # Get user input for basic settings
-read -p "Enter a hostname (vault-1): " HOSTNAME
+read -p "Enter a hostname (bitwarden): " HOSTNAME
 read -s -p "Enter a password (bitwarden): " HOSTPASS
 echo -e "\n"
 read -p "Enter a container ID (auto): " CONTAINER_ID
 
 # Set defaults if no input provided
-HOSTNAME="${HOSTNAME:-vault-1}"
+HOSTNAME="${HOSTNAME:-bitwarden}"
 HOSTPASS="${HOSTPASS:-bitwarden}"
 CONTAINER_ID="${CONTAINER_ID:-$(pvesh get /cluster/nextid 2>/dev/null || echo "100")}"
 
@@ -71,6 +71,11 @@ ENABLE_FUSE="no"
 ENABLE_TUN="no"
 APT_CACHER=""
 APT_CACHER_IP=""
+
+# IPv6 variables required by the build system
+IPV6_METHOD="none"
+IPV6_ADDR=""
+IPV6_GATE=""
 
 # Network configuration (same as AdGuard script)
 msg_info "Detecting network configuration..."
