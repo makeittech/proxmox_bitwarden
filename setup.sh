@@ -1,5 +1,6 @@
 #!/bin/bash -e
 
+STORAGE="local-lvm"
 
 # functions
 function fatal() {
@@ -59,7 +60,7 @@ export HOST_IP4_CIDR=${HOST_IP4_CIDR}
 # TODO: make this dynamic so the user can choose!
 CONTAINER_OS_TYPE='ubuntu'
 CONTAINER_OS_VERSION='ubuntu-23.04-standard_23.04-1_amd64.tar.zst'
-TEMPLATE_LOCATION="remote:vztmpl/${CONTAINER_OS_VERSION}"
+TEMPLATE_LOCATION="${STORAGE}:vztmpl/${CONTAINER_OS_VERSION}"
 info "Using template: ${TEMPLATE_LOCATION}"
 
 
