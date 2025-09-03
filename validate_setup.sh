@@ -35,10 +35,31 @@ else
 fi
 
 # Check for storage discovery logic
-if grep -q "pvesm status -content rootdir" setup.sh; then
+if grep -q "pvesm status -content rootdir\|pvesm status.*awk.*NR>1" setup.sh; then
     echo "✅ Storage discovery logic found"
 else
     echo "❌ Storage discovery logic missing"
+fi
+
+# Check for storage validation logic
+if grep -q "Validate storage accessibility\|troubleshoot_storage" setup.sh; then
+    echo "✅ Storage validation logic found"
+else
+    echo "❌ Storage validation logic missing"
+fi
+
+# Check for troubleshooting function
+if grep -q "function troubleshoot_storage" setup.sh; then
+    echo "✅ Storage troubleshooting function found"
+else
+    echo "❌ Storage troubleshooting function missing"
+fi
+
+# Check for disk space checking
+if grep -q "Check available disk space\|df -BG" setup.sh; then
+    echo "✅ Disk space checking found"
+else
+    echo "❌ Disk space checking missing"
 fi
 
 # Check for template download logic
