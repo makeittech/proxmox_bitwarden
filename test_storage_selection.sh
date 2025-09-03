@@ -16,6 +16,25 @@ msg_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
 msg_warn() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 msg_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# Check if running on Proxmox
+check_proxmox() {
+    if ! command -v pvesm >/dev/null 2>&1; then
+        msg_error "This script must be run on a Proxmox VE host"
+        msg_error "The pvesm command is not available"
+        msg_info "Please run this test on your Proxmox host"
+        exit 1
+    fi
+    
+    if ! command -v pct >/dev/null 2>&1; then
+        msg_error "This script must be run on a Proxmox VE host"
+        msg_error "The pct command is not available"
+        msg_info "Please run this test on your Proxmox host"
+        exit 1
+    fi
+    
+    msg_ok "Running on Proxmox VE host"
+}
+
 # Storage selection function (copied from setup.sh)
 select_storage() {
     local content_type="$1"
@@ -56,6 +75,9 @@ select_storage() {
 
 # Test the function
 echo "=== Testing Storage Selection ==="
+
+# Check if we're on Proxmox
+check_proxmox
 
 # Test template storage selection
 echo -e "\n--- Testing Template Storage Selection ---"

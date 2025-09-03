@@ -46,8 +46,15 @@ check_prerequisites() {
     fi
     
     # Check if running on Proxmox
+    if ! command -v pvesm >/dev/null 2>&1; then
+        msg_error "This script must be run on a Proxmox VE host"
+        msg_error "The pvesm command is not available"
+        exit 1
+    fi
+    
     if ! command -v pct >/dev/null 2>&1; then
         msg_error "This script must be run on a Proxmox VE host"
+        msg_error "The pct command is not available"
         exit 1
     fi
     
@@ -57,6 +64,8 @@ check_prerequisites() {
     if [[ ! "$pve_version" =~ ^[89]\. ]]; then
         msg_warn "Proxmox VE version $pve_version detected. This script is tested with versions 8.x and 9.x"
     fi
+    
+    msg_ok "Prerequisites check passed"
 }
 
 # Storage selection function
