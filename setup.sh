@@ -75,19 +75,25 @@ select_storage() {
         return 1
     fi
     
+    # Debug: show available storages
+    msg_info "Available storages for $content_label: ${available_storages[*]}"
+    
     if [ ${#available_storages[@]} -eq 1 ]; then
-        echo "${available_storages[0]}"
+        local selected_storage="${available_storages[0]}"
+        msg_info "Auto-selecting single storage: $selected_storage"
+        echo "$selected_storage"
         return 0
     fi
     
     # Multiple storages - let user choose
-    echo "Available storages for $content_label:"
+    echo "Available storages for $content_label:" >&2
+    PS3="Select storage for $content_label: "
     select storage in "${available_storages[@]}"; do
         if [[ -n "$storage" ]]; then
             echo "$storage"
             return 0
         fi
-        echo "Invalid selection. Please try again."
+        echo "Invalid selection. Please try again." >&2
     done
 }
 
@@ -238,11 +244,19 @@ main() {
         exit 1
     fi
     
+    # Clean up storage name (remove any extra text)
+    TEMPLATE_STORAGE=$(echo "$TEMPLATE_STORAGE" | tr -d '\n\r' | xargs)
+    msg_info "Selected template storage: '$TEMPLATE_STORAGE'"
+    
     CONTAINER_STORAGE=$(select_storage "rootdir" "containers")
     if [[ $? -ne 0 ]]; then
         msg_error "Failed to select container storage"
         exit 1
     fi
+    
+    # Clean up storage name (remove any extra text)
+    CONTAINER_STORAGE=$(echo "$CONTAINER_STORAGE" | tr -d '\n\r' | xargs)
+    msg_info "Selected container storage: '$CONTAINER_STORAGE'"
     
     msg_ok "Template storage: $TEMPLATE_STORAGE"
     msg_ok "Container storage: $CONTAINER_STORAGE"
