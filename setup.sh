@@ -120,11 +120,19 @@ manage_template() {
         return 1
     fi
     
-    # Clean storage name
-    template_storage=$(echo "$template_storage" | tr -d '\n\r' | xargs)
+    # Clean storage name - more aggressive cleaning
+    template_storage=$(echo "$template_storage" | tr -d '\n\r\t' | sed 's/[[:space:]]*$//' | sed 's/^[[:space:]]*//')
     msg_info "Using template storage: '$template_storage'"
     
+    # Validate storage name format
+    if [[ ! "$template_storage" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        msg_error "Invalid storage name format: '$template_storage'"
+        msg_error "Storage name can only contain letters, numbers, hyphens, and underscores"
+        return 1
+    fi
+    
     # Update template list
+    msg_info "Updating available templates..."
     pveam update >/dev/null 2>&1 || msg_warn "Failed to update template list"
     
     # Search for template
@@ -144,31 +152,29 @@ manage_template() {
     
     msg_info "Found template: $template"
     
-    # Check if template exists locally - with better error handling
+    # Check if template exists locally - using pveam instead of pvesm list
     msg_info "Checking if template exists in storage $template_storage..."
     
-    # First validate the storage is accessible
-    if ! pvesm status | grep -q "^$template_storage[[:space:]]"; then
-        msg_error "Storage $template_storage is not accessible"
+    # First validate the storage is accessible using pvesm status
+    if ! pvesm status 2>/dev/null | grep -q "^$template_storage[[:space:]]"; then
+        msg_error "Storage $template_storage is not accessible or does not exist"
+        msg_info "Available storages:"
+        pvesm status 2>/dev/null | awk 'NR>1 {print "  - " $1}' || msg_warn "Could not list storage status"
         return 1
     fi
     
-    # Try to list storage contents
-    if ! pvesm list "$template_storage" >/dev/null 2>&1; then
-        msg_warn "Cannot list storage $template_storage contents, attempting download anyway"
-    else
-        # Check if template exists locally
-        if pvesm list "$template_storage" | grep -q "$template"; then
-            msg_info "Template $template already exists in storage $template_storage"
-            echo "$template"
-            return 0
-        fi
+    # Check if template exists using pveam list instead of pvesm list
+    if pveam list "$template_storage" 2>/dev/null | grep -q "$template"; then
+        msg_info "Template $template already exists in storage $template_storage"
+        echo "$template"
+        return 0
     fi
     
     # Download template if not found locally
     msg_info "Downloading template $template to $template_storage..."
     if ! pveam download "$template_storage" "$template" >/dev/null 2>&1; then
         msg_error "Failed to download template $template to storage $template_storage"
+        msg_error "This might be due to insufficient space or storage permissions"
         return 1
     fi
     
