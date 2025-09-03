@@ -15,6 +15,7 @@ This occurred because the storage discovery logic was not robust enough to handl
 3. **No Fallback Mechanisms**: No alternative storage detection methods when the primary method failed
 4. **Insufficient Validation**: Storage validation was basic and didn't check for container support properly
 5. **No Troubleshooting Help**: Users had no guidance on how to fix storage issues
+6. **Incorrect pvesm Usage**: The script was calling `pvesm status "$STORAGE"` which causes "400 too many arguments" error
 
 ## Fixes Implemented
 
@@ -50,6 +51,11 @@ This occurred because the storage discovery logic was not robust enough to handl
 - **Warning System**: Alerts users if disk space is low
 - **Storage Path Detection**: Automatically finds storage paths for space checking
 
+### 7. Fixed pvesm Command Usage
+- **Corrected Command Syntax**: Changed from `pvesm status "$STORAGE"` to `pvesm status | grep "^$STORAGE[[:space:]]"`
+- **Eliminated 400 Error**: The "400 too many arguments" error is now resolved
+- **Proper Storage Filtering**: Uses grep to filter the output of `pvesm status` instead of passing arguments
+
 ## Code Changes Made
 
 ### Storage Discovery Logic
@@ -65,16 +71,17 @@ STORAGE_LIST=($(pvesm status 2>/dev/null | awk 'NR>1 {print $1}' | grep -v '^$')
 
 ### Storage Validation
 ```bash
-# Before: Basic check
+# Before: Basic check with incorrect syntax
 if ! pvesm status "$STORAGE" >/dev/null 2>&1; then
     fatal "Storage $STORAGE is not accessible"
 fi
 
-# After: Comprehensive validation
-# Check accessibility
-# Verify container support
-# Test content listing
-# Display detailed information
+# After: Comprehensive validation with correct syntax
+STORAGE_DETAILS=$(pvesm status 2>/dev/null | grep "^$STORAGE[[:space:]]")
+if [ -z "$STORAGE_DETAILS" ]; then
+    error "Storage $STORAGE not found in available storages"
+    # ... detailed error handling
+fi
 ```
 
 ### Error Handling
@@ -83,12 +90,36 @@ fi
 fatal "Storage $STORAGE is not accessible"
 
 # After: Detailed error with troubleshooting
-error "Storage $STORAGE status check failed"
+error "Storage $STORAGE not found in available storages"
 error "Available storages:"
 pvesm status 2>/dev/null || error "Could not get storage status"
 troubleshoot_storage
 fatal "Storage $STORAGE is not accessible"
 ```
+
+## Critical Fix: pvesm Command Usage
+
+### The Problem
+The original code was incorrectly calling:
+```bash
+pvesm status "$STORAGE"  # This causes "400 too many arguments" error
+```
+
+### The Solution
+Changed to the correct approach:
+```bash
+STORAGE_DETAILS=$(pvesm status 2>/dev/null | grep "^$STORAGE[[:space:]]")
+```
+
+### Why This Fixes the Error
+- `pvesm status` expects no arguments and lists all storages
+- We then use `grep` to filter for the specific storage we want
+- This eliminates the "400 too many arguments" error
+- The storage details are extracted from the filtered output
+
+### Files Fixed
+- `setup.sh` - Main setup script
+- `test_storage_discovery.sh` - Test script for storage discovery
 
 ## Benefits of the Fixes
 
@@ -98,6 +129,7 @@ fatal "Storage $STORAGE is not accessible"
 4. **Robust Fallbacks**: Continues working even when primary methods fail
 5. **Proactive Monitoring**: Checks disk space and warns about potential issues
 6. **Self-Help**: Users can resolve many issues without external assistance
+7. **No More 400 Errors**: The pvesm command usage is now correct and won't cause argument errors
 
 ## Testing the Fixes
 
@@ -109,6 +141,8 @@ The updated script now:
 - ✅ Offers troubleshooting guidance
 - ✅ Monitors disk space
 - ✅ Handles multiple storage types
+- ✅ Uses correct pvesm command syntax
+- ✅ Eliminates "400 too many arguments" errors
 
 ## Usage
 
@@ -119,5 +153,6 @@ The improved script will now:
 4. Offer troubleshooting steps for common problems
 5. Check disk space and warn about low space
 6. Fall back to common storage names if needed
+7. Use correct pvesm commands without argument errors
 
-This should resolve the "Storage local-lvm is not accessible" error and provide a much more robust storage discovery experience.
+This should resolve both the "Storage local-lvm is not accessible" error and the "400 too many arguments" error, providing a much more robust storage discovery experience.
