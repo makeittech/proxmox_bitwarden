@@ -105,6 +105,16 @@ manage_template() {
     
     msg_info "Managing template for $os_type $os_version..."
     
+    # Validate storage parameter
+    if [[ -z "$template_storage" ]]; then
+        msg_error "Template storage parameter is empty"
+        return 1
+    fi
+    
+    # Clean storage name
+    template_storage=$(echo "$template_storage" | tr -d '\n\r' | xargs)
+    msg_info "Using template storage: '$template_storage'"
+    
     # Update template list
     pveam update >/dev/null 2>&1 || msg_warn "Failed to update template list"
     
@@ -125,15 +135,35 @@ manage_template() {
     
     msg_info "Found template: $template"
     
-    # Check if template exists locally
-    if ! pvesm list "$template_storage" | grep -q "$template"; then
-        msg_info "Downloading template to $template_storage..."
-        if ! pveam download "$template_storage" "$template" >/dev/null 2>&1; then
-            msg_error "Failed to download template"
-            return 1
+    # Check if template exists locally - with better error handling
+    msg_info "Checking if template exists in storage $template_storage..."
+    
+    # First validate the storage is accessible
+    if ! pvesm status | grep -q "^$template_storage[[:space:]]"; then
+        msg_error "Storage $template_storage is not accessible"
+        return 1
+    fi
+    
+    # Try to list storage contents
+    if ! pvesm list "$template_storage" >/dev/null 2>&1; then
+        msg_warn "Cannot list storage $template_storage contents, attempting download anyway"
+    else
+        # Check if template exists locally
+        if pvesm list "$template_storage" | grep -q "$template"; then
+            msg_info "Template $template already exists in storage $template_storage"
+            echo "$template"
+            return 0
         fi
     fi
     
+    # Download template if not found locally
+    msg_info "Downloading template $template to $template_storage..."
+    if ! pveam download "$template_storage" "$template" >/dev/null 2>&1; then
+        msg_error "Failed to download template $template to storage $template_storage"
+        return 1
+    fi
+    
+    msg_ok "Template downloaded successfully"
     echo "$template"
 }
 
@@ -260,6 +290,12 @@ main() {
     
     msg_ok "Template storage: $TEMPLATE_STORAGE"
     msg_ok "Container storage: $CONTAINER_STORAGE"
+    
+    # Debug: show exact values being passed
+    msg_info "DEBUG: About to call manage_template with:"
+    msg_info "  - template_storage: '$TEMPLATE_STORAGE'"
+    msg_info "  - os_type: '${var_os:-ubuntu}'"
+    msg_info "  - os_version: '${var_version:-22.04}'"
     
     # Template management
     TEMPLATE=$(manage_template "$TEMPLATE_STORAGE" "${var_os:-ubuntu}" "${var_version:-22.04}")
