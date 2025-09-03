@@ -72,14 +72,12 @@ info "Checking storage accessibility and container support..."
 for storage in "${STORAGE_LIST[@]}"; do
     info "Checking storage: $storage"
     
-    # Check if storage is accessible
-    if ! pvesm status "$storage" >/dev/null 2>&1; then
+    # Check if storage is accessible and get details
+    STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$storage[[:space:]]")
+    if [ -z "$STORAGE_INFO" ]; then
         warn "Storage $storage is not accessible"
         continue
     fi
-    
-    # Get storage details
-    STORAGE_INFO=$(pvesm status "$storage" 2>/dev/null)
     info "Storage $storage details: $STORAGE_INFO"
     
     # Check if storage supports containers (has rootdir or vztmpl content type)
@@ -107,8 +105,8 @@ if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
     COMMON_STORAGES=("local" "local-lvm" "local-zfs" "pve" "storage")
     
     for common_storage in "${COMMON_STORAGES[@]}"; do
-        if pvesm status "$common_storage" >/dev/null 2>&1; then
-            STORAGE_INFO=$(pvesm status "$common_storage" 2>/dev/null)
+        STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$common_storage[[:space:]]")
+        if [ -n "$STORAGE_INFO" ]; then
             info "Found storage: $common_storage - $STORAGE_INFO"
             # Don't require container content type for fallback - just use what's available
             STORAGE=$common_storage
@@ -146,15 +144,15 @@ info "Selected storage: $STORAGE"
 info "Validating storage accessibility for: $STORAGE"
 
 # Check if storage exists and is accessible
-if ! pvesm status "$STORAGE" >/dev/null 2>&1; then
-    error "Storage $STORAGE status check failed"
+STORAGE_DETAILS=$(pvesm status 2>/dev/null | grep "^$STORAGE[[:space:]]")
+if [ -z "$STORAGE_DETAILS" ]; then
+    error "Storage $STORAGE not found in available storages"
     error "Available storages:"
     pvesm status 2>/dev/null || error "Could not get storage status"
     exit 1
 fi
 
-# Get and display storage details
-STORAGE_DETAILS=$(pvesm status "$STORAGE" 2>/dev/null)
+# Display storage details
 info "Storage $STORAGE details: $STORAGE_DETAILS"
 
 # Check if storage supports containers
