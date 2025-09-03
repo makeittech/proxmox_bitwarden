@@ -127,14 +127,12 @@ info "Checking storage accessibility and container support..."
 for storage in "${STORAGE_LIST[@]}"; do
     info "Checking storage: $storage"
     
-    # Check if storage is accessible
-    if ! pvesm status "$storage" >/dev/null 2>&1; then
+    # Check if storage is accessible and get details
+    STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$storage[[:space:]]")
+    if [ -z "$STORAGE_INFO" ]; then
         warn "Storage $storage is not accessible"
         continue
     fi
-    
-    # Get storage details
-    STORAGE_INFO=$(pvesm status "$storage" 2>/dev/null)
     info "Storage $storage details: $STORAGE_INFO"
     
     # Check if storage supports containers (has rootdir or vztmpl content type)
@@ -162,8 +160,8 @@ if [ ${#STORAGE_LIST[@]} -eq 0 ]; then
     COMMON_STORAGES=("local" "local-lvm" "local-zfs" "pve" "storage")
     
     for common_storage in "${COMMON_STORAGES[@]}"; do
-        if pvesm status "$common_storage" >/dev/null 2>&1; then
-            STORAGE_INFO=$(pvesm status "$common_storage" 2>/dev/null)
+        STORAGE_INFO=$(pvesm status 2>/dev/null | grep "^$common_storage[[:space:]]")
+        if [ -n "$STORAGE_INFO" ]; then
             info "Found storage: $common_storage - $STORAGE_INFO"
             # Don't require container content type for fallback - just use what's available
             STORAGE=$common_storage
@@ -204,16 +202,16 @@ info "Selected storage: $STORAGE"
 info "Validating storage accessibility for: $STORAGE"
 
 # Check if storage exists and is accessible
-if ! pvesm status "$STORAGE" >/dev/null 2>&1; then
-    error "Storage $STORAGE status check failed"
+STORAGE_DETAILS=$(pvesm status 2>/dev/null | grep "^$STORAGE[[:space:]]")
+if [ -z "$STORAGE_DETAILS" ]; then
+    error "Storage $STORAGE not found in available storages"
     error "Available storages:"
     pvesm status 2>/dev/null || error "Could not get storage status"
     troubleshoot_storage
     fatal "Storage $STORAGE is not accessible"
 fi
 
-# Get and display storage details
-STORAGE_DETAILS=$(pvesm status "$STORAGE" 2>/dev/null)
+# Display storage details
 info "Storage $STORAGE details: $STORAGE_DETAILS"
 
 # Check if storage supports containers
@@ -250,7 +248,7 @@ fi
 info "Checking available disk space..."
 if command -v df >/dev/null 2>&1; then
     # Get storage path and check space
-    STORAGE_PATH=$(pvesm status "$STORAGE" | grep -o 'path: [^[:space:]]*' | cut -d' ' -f2)
+    STORAGE_PATH=$(echo "$STORAGE_DETAILS" | grep -o 'path: [^[:space:]]*' | cut -d' ' -f2)
     if [ -n "$STORAGE_PATH" ] && [ -d "$STORAGE_PATH" ]; then
         AVAILABLE_SPACE=$(df -BG "$STORAGE_PATH" | awk 'NR==2 {print $4}' | sed 's/G//')
         if [ -n "$AVAILABLE_SPACE" ] && [ "$AVAILABLE_SPACE" -lt 10 ]; then
@@ -265,9 +263,7 @@ fi
 TEMPLATE_LOCATION="${STORAGE}:vztmpl/${CONTAINER_OS_VERSION}"
 info "Checking template availability: ${TEMPLATE_LOCATION}"
 
-if ! pvesm status "$STORAGE" >/dev/null 2>&1; then
-    fatal "Storage $STORAGE is not accessible"
-fi
+# Storage accessibility was already validated above, no need to check again
 
 # Check if template exists in storage
 info "Checking for template $CONTAINER_OS_VERSION in storage $STORAGE..."
