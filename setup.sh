@@ -59,6 +59,19 @@ CT_TYPE="$var_unprivileged"
 PCT_OSTYPE="$var_os"
 PCT_OSVERSION="$var_version"
 
+# Additional variables required by the build system
+MAC=""
+VLAN=""
+MTU="1500"
+SD=""
+NS=""
+SSH="no"
+SSH_AUTHORIZED_KEY=""
+ENABLE_FUSE="no"
+ENABLE_TUN="no"
+APT_CACHER=""
+APT_CACHER_IP=""
+
 # Network configuration (same as AdGuard script)
 msg_info "Detecting network configuration..."
 BRG=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -f1)
