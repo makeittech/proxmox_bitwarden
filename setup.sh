@@ -49,6 +49,7 @@ fi
 
 # Set global variables for container creation (same as AdGuard script)
 CTID="$CONTAINER_ID"
+CT_ID="$CONTAINER_ID"  # Also needed by build system
 HN="$HOSTNAME"
 PW="-password $HOSTPASS"
 TAGS="$var_tags"
@@ -84,6 +85,25 @@ VERBOSE="no"
 DIAGNOSTICS="no"
 METHOD="default"
 BRIDGES=""
+
+# Container type description variables
+CT_DEFAULT_TYPE="$var_unprivileged"
+CT_TYPE_DESC="Unprivileged"
+if [[ "$var_unprivileged" == "0" ]]; then
+    CT_TYPE_DESC="Privileged"
+fi
+
+# Additional build system variables
+ADV_TAGS=""
+CHOICE=""
+CURRENT_IP=""
+DESCRIPTION=""
+IFACE_FILEPATH_LIST=""
+LXC_CONFIG=""
+MOTD_FILE="/etc/motd"
+OLD_IFS=""
+TEMP_DIR=""
+TMP_CHOICE=""
 
 # Network configuration (same as AdGuard script)
 msg_info "Detecting network configuration..."
