@@ -44,12 +44,31 @@ systemctl enable docker
 systemctl start docker
 
 echo "Installing Bitwarden..."
+# Ensure we're running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "This script must be run as root"
+    exit 1
+fi
+
 usermod -aG docker root
 usermod -aG docker vaultadmin
 sudo mkdir /opt/bitwarden
-sudo chmod -R 700 /opt/bitwarden
-curl -Lso bitwarden.sh https://go.btwrdn.co/bw-sh && chmod 700 bitwarden.sh
-./bitwarden.sh install
+sudo chmod 755 /opt/bitwarden
+cd /opt/bitwarden
+echo "Downloading Bitwarden installer..."
+curl -Lso bitwarden.sh https://go.btwrdn.co/bw-sh
+if [ $? -eq 0 ]; then
+    echo "Download successful, setting permissions..."
+    chmod 700 bitwarden.sh
+    echo "File size: $(wc -c < bitwarden.sh) bytes"
+    echo "First few lines of downloaded file:"
+    head -5 bitwarden.sh
+    echo "Installing Bitwarden..."
+    ./bitwarden.sh install
+else
+    echo "Failed to download Bitwarden installer"
+    exit 1
+fi
 
 
 echo "Opening config file(s) for editing..."
@@ -57,6 +76,7 @@ nano /bwdata/env/global.override.env
 
 
 echo "Starting Bitwarden..."
+cd /opt/bitwarden
 ./bitwarden.sh start
 
 
