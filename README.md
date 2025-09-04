@@ -94,11 +94,6 @@ If you encounter container creation errors:
 
 If you get "storage does not support container directories":
 
-**Quick Fix:**
-```bash
-./fix_storage_containers.sh [storage_name]
-```
-
 **Manual Fix:**
 1. Open Proxmox web interface
 2. Go to Datacenter > Storage
