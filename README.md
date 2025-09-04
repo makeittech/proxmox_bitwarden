@@ -77,14 +77,23 @@ Access Bitwarden at: http://[CONTAINER_IP]:8080
 
 1. **Access the web interface** at `http://[CONTAINER_IP]:8080`
 2. **Create your admin account** (first user becomes admin)
+   - The first user to register will automatically become the organization administrator
+   - Use a strong, unique password for your admin account
 3. **Configure your organization** and settings
 4. **Set up SSL** (recommended for production use)
+
+**Default Bitwarden Access:**
+- **URL**: `http://[CONTAINER_IP]:8080`
+- **Admin Account**: First user to register becomes admin
+- **No default credentials**: You must create your own account
 
 ### SSH Access
 
 - **Username**: `root`
-- **Password**: The password you set during container creation
+- **Password**: The password you set during container creation (you will be prompted to set this during installation)
 - **Command**: `ssh root@[CONTAINER_IP]`
+
+**Note**: You will be prompted to set a root password during the container creation process. This password is required for SSH access to the container.
 
 ## Troubleshooting
 
@@ -122,6 +131,17 @@ If you can't access Bitwarden:
 1. **Check container status**: `pct status [CTID]`
 2. **Verify services**: `pct exec [CTID] docker ps`
 3. **Check logs**: `pct exec [CTID] docker logs bitwarden`
+
+### Docker Installation Issues
+
+If you encounter Docker installation problems:
+
+1. **Check Docker service**: `pct exec [CTID] service docker status`
+2. **Start Docker manually**: `pct exec [CTID] service docker start`
+3. **Verify Docker installation**: `pct exec [CTID] docker --version`
+4. **Check Docker Compose**: `pct exec [CTID] docker-compose --version`
+
+**Note**: The installation script now includes Docker installation before Bitwarden setup to prevent the "Docker Compose not found" error.
 
 ## Advanced Configuration
 
