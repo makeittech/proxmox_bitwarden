@@ -80,6 +80,12 @@ Access Bitwarden at: http://[CONTAINER_IP]:8080
 3. **Configure your organization** and settings
 4. **Set up SSL** (recommended for production use)
 
+### SSH Access
+
+- **Username**: `root`
+- **Password**: The password you set during container creation
+- **Command**: `ssh root@[CONTAINER_IP]`
+
 ## Troubleshooting
 
 ### Container Creation Issues
