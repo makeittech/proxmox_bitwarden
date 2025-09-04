@@ -105,6 +105,15 @@ OLD_IFS=""
 TEMP_DIR=""
 TMP_CHOICE=""
 
+# Variables needed for container creation
+FEATURES="nesting=1"
+if [[ "$var_unprivileged" == "1" ]]; then
+    FEATURES="keyctl=1,nesting=1"
+fi
+
+# Network string will be built in build_container function
+NET_STRING=""
+
 # Network configuration (same as AdGuard script)
 msg_info "Detecting network configuration..."
 BRG=$(ip route | grep default | awk '{print $3}' | head -n1 | cut -d'.' -f1)
