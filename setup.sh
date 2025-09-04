@@ -253,19 +253,31 @@ pct exec "$CTID" -- bash -c "
         echo 'Starting non-interactive installation with inputs:'
         echo '1. y (confirm root user)'
         echo \"2. \$CONTAINER_IP (domain name)\"
-        echo '3. n (skip SSL)'
-        echo '4. n (skip database setup)'
+        echo '3. n (skip Let'\''s Encrypt SSL)'
+        echo '4. vault (database name)'
         echo '5. n (skip admin user setup)'
         
-        printf 'y\n%s\nn\nn\nn\n' \"\$CONTAINER_IP\" | ./bitwarden.sh install
+        # Set environment variables to help with non-interactive installation
+        export DEBIAN_FRONTEND=noninteractive
+        export BITWARDEN_ACCEPT_EULA=true
+        
+        # Provide comprehensive inputs for all possible prompts
+        # Include extra inputs to handle any additional prompts
+        printf 'y\n%s\nn\nvault\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | ./bitwarden.sh install
         INSTALL_EXIT_CODE=\$?
         
         if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
             echo \"Bitwarden installation failed with exit code: \$INSTALL_EXIT_CODE\"
             echo 'Checking installation directory...'
             ls -la /opt/bitwarden/
+            echo 'Checking bwdata directory...'
+            ls -la /opt/bitwarden/bwdata/ 2>/dev/null || echo 'bwdata directory not found'
             echo 'Checking for any error logs...'
-            find /opt/bitwarden -name '*.log' -exec cat {} \;
+            find /opt/bitwarden -name '*.log' -exec cat {} \; 2>/dev/null || echo 'No log files found'
+            echo 'Checking Docker containers...'
+            docker ps -a 2>/dev/null || echo 'Docker not available'
+            echo 'Checking Docker logs for bitwarden containers...'
+            docker logs \$(docker ps -aq --filter 'name=bitwarden') 2>/dev/null || echo 'No bitwarden containers found'
             exit 1
         fi
         
