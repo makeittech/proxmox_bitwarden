@@ -205,33 +205,64 @@ pct exec "$CTID" -- bash -c "
     mkdir -p /opt/bitwarden
     cd /opt/bitwarden
     
-    # Download Bitwarden installer
+    # Download Bitwarden installer with multiple fallback URLs
     echo 'Downloading Bitwarden installer...'
-    curl -Lso bitwarden.sh https://func.bitwarden.com/api/dl/?app=self-host
-    if [ \$? -ne 0 ]; then
-        echo 'Failed to download Bitwarden installer'
+    
+    # Try multiple download URLs as fallbacks
+    DOWNLOAD_URLS=(
+        'https://go.btwrdn.co/bw-sh'
+        'https://func.bitwarden.com/api/dl/?app=self-host&platform=linux'
+        'https://raw.githubusercontent.com/bitwarden/server/master/scripts/bitwarden.sh'
+    )
+    
+    DOWNLOAD_SUCCESS=false
+    for url in \"\${DOWNLOAD_URLS[@]}\"; do
+        echo \"Trying URL: \$url\"
+        curl -Lso bitwarden.sh \"\$url\"
+        if [ \$? -eq 0 ] && [ -s bitwarden.sh ]; then
+            echo \"Download successful from: \$url\"
+            echo \"File size: \$(wc -c < bitwarden.sh) bytes\"
+            
+            # Check if the file looks like a valid script
+            if head -1 bitwarden.sh | grep -q '#!/bin/bash\|#!/usr/bin/env bash'; then
+                echo \"Valid script detected, setting permissions...\"
+                chmod 700 bitwarden.sh
+                echo \"First few lines of downloaded file:\"
+                head -5 bitwarden.sh
+                DOWNLOAD_SUCCESS=true
+                break
+            else
+                echo \"Downloaded file doesn't appear to be a valid script:\"
+                head -5 bitwarden.sh
+                echo \"Trying next URL...\"
+            fi
+        else
+            echo \"Failed to download from: \$url\"
+        fi
+    done
+    
+    if [ \"\$DOWNLOAD_SUCCESS\" = true ]; then
+        echo 'Installing Bitwarden...'
+        ./bitwarden.sh install
+        if [ \$? -ne 0 ]; then
+            echo 'Bitwarden installation failed'
+            exit 1
+        fi
+        
+        # Start Bitwarden
+        echo 'Starting Bitwarden...'
+        ./bitwarden.sh start
+        if [ \$? -ne 0 ]; then
+            echo 'Failed to start Bitwarden'
+            exit 1
+        fi
+        
+        echo 'Bitwarden setup completed successfully'
+    else
+        echo 'Failed to download Bitwarden installer from all URLs'
+        echo 'Please check your internet connection and try again'
         exit 1
     fi
-    
-    chmod +x bitwarden.sh
-    
-    # Install Bitwarden with platform parameter
-    echo 'Installing Bitwarden...'
-    ./bitwarden.sh install --acceptlicense --platform linux
-    if [ \$? -ne 0 ]; then
-        echo 'Bitwarden installation failed'
-        exit 1
-    fi
-    
-    # Start Bitwarden
-    echo 'Starting Bitwarden...'
-    ./bitwarden.sh start
-    if [ \$? -ne 0 ]; then
-        echo 'Failed to start Bitwarden'
-        exit 1
-    fi
-    
-    echo 'Bitwarden setup completed successfully'
 " || {
     msg_error "Bitwarden setup failed!"
     msg_info "Checking container logs..."
