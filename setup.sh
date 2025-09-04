@@ -218,11 +218,25 @@ pct reboot "$CTID"
 # Wait for restart
 sleep 15
 
-msg_ok "Container and app setup complete!"
-msg_info "Container ID: $CTID"
-msg_info "Hostname: $HN"
-msg_info "Access Bitwarden at: http://\$(pct exec $CTID ip a s dev eth0 | awk '/inet / {print \$2}' | cut -d/ -f1):8080"
+# Get container IP address
+CONTAINER_IP=$(pct exec "$CTID" ip a s dev eth0 | awk '/inet / {print $2}' | cut -d/ -f1)
 
+msg_ok "Container and app setup complete!"
+echo ""
 echo "###########################"
 echo "Setup : complete"
 echo "###########################"
+echo ""
+msg_info "Container ID: $CTID"
+msg_info "Hostname: $HN"
+msg_info "Container IP: $CONTAINER_IP"
+echo ""
+msg_info "SSH Access:"
+msg_info "  Username: root"
+msg_info "  Password: [The password you set during setup]"
+msg_info "  Command: ssh root@$CONTAINER_IP"
+echo ""
+msg_info "Bitwarden Access:"
+msg_info "  URL: http://$CONTAINER_IP:8080"
+msg_info "  Create your admin account on first visit"
+echo ""
