@@ -206,7 +206,7 @@ pct exec "$CTID" -- bash -c "
     cd /opt/bitwarden
     
     # Download Bitwarden installer
-    msg_info 'Downloading Bitwarden installer...'
+    echo 'Downloading Bitwarden installer...'
     curl -Lso bitwarden.sh https://func.bitwarden.com/api/dl/?app=self-host
     if [ \$? -ne 0 ]; then
         echo 'Failed to download Bitwarden installer'
@@ -215,16 +215,16 @@ pct exec "$CTID" -- bash -c "
     
     chmod +x bitwarden.sh
     
-    # Install Bitwarden
-    msg_info 'Installing Bitwarden...'
-    ./bitwarden.sh install --acceptlicense
+    # Install Bitwarden with platform parameter
+    echo 'Installing Bitwarden...'
+    ./bitwarden.sh install --acceptlicense --platform linux
     if [ \$? -ne 0 ]; then
         echo 'Bitwarden installation failed'
         exit 1
     fi
     
     # Start Bitwarden
-    msg_info 'Starting Bitwarden...'
+    echo 'Starting Bitwarden...'
     ./bitwarden.sh start
     if [ \$? -ne 0 ]; then
         echo 'Failed to start Bitwarden'
