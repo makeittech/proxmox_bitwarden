@@ -244,10 +244,28 @@ pct exec "$CTID" -- bash -c "
     if [ \"\$DOWNLOAD_SUCCESS\" = true ]; then
         echo 'Installing Bitwarden...'
         echo 'Note: Running as root in Proxmox LXC container environment'
-        # Automatically answer 'y' to the root user confirmation prompt
-        echo 'y' | ./bitwarden.sh install
-        if [ \$? -ne 0 ]; then
-            echo 'Bitwarden installation failed'
+        # Get container IP for domain configuration
+        CONTAINER_IP=\$(ip a s dev eth0 | awk '/inet / {print \$2}' | cut -d/ -f1)
+        echo \"Using container IP: \$CONTAINER_IP as domain\"
+        
+        # Provide all required inputs for non-interactive installation
+        # Use a more comprehensive approach to handle all possible prompts
+        echo 'Starting non-interactive installation with inputs:'
+        echo '1. y (confirm root user)'
+        echo \"2. \$CONTAINER_IP (domain name)\"
+        echo '3. n (skip SSL)'
+        echo '4. n (skip database setup)'
+        echo '5. n (skip admin user setup)'
+        
+        printf 'y\n%s\nn\nn\nn\n' \"\$CONTAINER_IP\" | ./bitwarden.sh install
+        INSTALL_EXIT_CODE=\$?
+        
+        if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
+            echo \"Bitwarden installation failed with exit code: \$INSTALL_EXIT_CODE\"
+            echo 'Checking installation directory...'
+            ls -la /opt/bitwarden/
+            echo 'Checking for any error logs...'
+            find /opt/bitwarden -name '*.log' -exec cat {} \;
             exit 1
         fi
         
