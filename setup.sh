@@ -14,6 +14,134 @@ var_version="${var_version:-22.04}"
 var_unprivileged="${var_unprivileged:-1}"
 var_install="${var_install:-}"
 
+# Custom container creation function (based on build_container but without automatic installation)
+create_custom_container() {
+  NET_STRING="-net0 name=eth0,bridge=$BRG$MAC,ip=$NET$GATE$VLAN$MTU"
+  case "$IPV6_METHOD" in
+  auto) NET_STRING="$NET_STRING,ip6=auto" ;;
+  dhcp) NET_STRING="$NET_STRING,ip6=dhcp" ;;
+  static)
+    NET_STRING="$NET_STRING,ip6=$IPV6_ADDR"
+    [ -n "$IPV6_GATE" ] && NET_STRING="$NET_STRING,gw6=$IPV6_GATE"
+    ;;
+  none) ;;
+  esac
+  if [ "$CT_TYPE" == "1" ]; then
+    FEATURES="keyctl=1,nesting=1"
+  else
+    FEATURES="nesting=1"
+  fi
+
+  if [ "$ENABLE_FUSE" == "yes" ]; then
+    FEATURES="$FEATURES,fuse=1"
+  fi
+
+  TEMP_DIR=$(mktemp -d)
+  pushd "$TEMP_DIR" >/dev/null
+  
+  export FUNCTIONS_FILE_PATH="$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/install.func)"
+  export DIAGNOSTICS="$DIAGNOSTICS"
+  export RANDOM_UUID="$RANDOM_UUID"
+  export CACHER="$APT_CACHER"
+  export CACHER_IP="$APT_CACHER_IP"
+  export tz="$timezone"
+  export APPLICATION="$APP"
+  export app="$NSAPP"
+  export PASSWORD="$PW"
+  export VERBOSE="$VERBOSE"
+  export SSH_ROOT="${SSH}"
+  export SSH_AUTHORIZED_KEY
+  export CTID="$CT_ID"
+  export CTTYPE="$CT_TYPE"
+  export ENABLE_FUSE="$ENABLE_FUSE"
+  export ENABLE_TUN="$ENABLE_TUN"
+  export PCT_OSTYPE="$var_os"
+  export PCT_OSVERSION="$var_version"
+  export PCT_DISK_SIZE="$DISK_SIZE"
+  export PCT_OPTIONS="
+    -features $FEATURES
+    -hostname $HN
+    -tags $TAGS
+    $SD
+    $NS
+    $NET_STRING
+    -onboot 1
+    -cores $CORE_COUNT
+    -memory $RAM_SIZE
+    -unprivileged $CT_TYPE
+    $PW
+  "
+  
+  # Create the container
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/create_lxc.sh)" $?
+  
+  LXC_CONFIG="/etc/pve/lxc/${CTID}.conf"
+
+  # Start the container
+  msg_info "Starting LXC Container"
+  pct start "$CTID"
+
+  # Wait for container to be running
+  for i in {1..10}; do
+    if pct status "$CTID" | grep -q "status: running"; then
+      msg_ok "Started LXC Container"
+      break
+    fi
+    sleep 1
+    if [ "$i" -eq 10 ]; then
+      msg_error "LXC Container did not reach running state"
+      exit 1
+    fi
+  done
+
+  # Wait for network
+  msg_info "Waiting for network in LXC container"
+  for i in {1..10}; do
+    if pct exec "$CTID" -- ping -c1 -W1 deb.debian.org >/dev/null 2>&1; then
+      msg_ok "Network in LXC is reachable (ping)"
+      break
+    fi
+    if [ "$i" -lt 10 ]; then
+      msg_warn "No network in LXC yet (try $i/10) – waiting..."
+      sleep 3
+    else
+      msg_warn "Ping failed 10 times. Trying HTTP connectivity check (wget) as fallback..."
+      if pct exec "$CTID" -- wget -q --spider http://deb.debian.org; then
+        msg_ok "Network in LXC is reachable (wget fallback)"
+      else
+        msg_error "No network in LXC after all checks."
+        exit 1
+      fi
+      break
+    fi
+  done
+
+  # Customize container
+  msg_info "Customizing LXC Container"
+  : "${tz:=Etc/UTC}"
+  sleep 3
+  pct exec "$CTID" -- bash -c "sed -i '/$LANG/ s/^# //' /etc/locale.gen"
+  pct exec "$CTID" -- bash -c "locale_line=\$(grep -v '^#' /etc/locale.gen | grep -E '^[a-zA-Z]' | awk '{print \$1}' | head -n 1) && \
+    echo LANG=\$locale_line >/etc/default/locale && \
+    locale-gen >/dev/null && \
+    export LANG=\$locale_line"
+
+  if [[ -z "${tz:-}" ]]; then
+    tz=$(timedatectl show --property=Timezone --value 2>/dev/null || echo "Etc/UTC")
+  fi
+  if pct exec "$CTID" -- test -e "/usr/share/zoneinfo/$tz"; then
+    pct exec "$CTID" -- bash -c "tz='$tz'; echo \"\$tz\" >/etc/timezone && ln -sf \"/usr/share/zoneinfo/\$tz\" /etc/localtime"
+  else
+    msg_warn "Skipping timezone setup – zone '$tz' not found in container"
+  fi
+
+  pct exec "$CTID" -- bash -c "apt-get update >/dev/null && apt-get install -y sudo curl mc gnupg2 jq >/dev/null"
+  msg_ok "Customized LXC Container"
+  
+  popd >/dev/null
+  rm -rf "$TEMP_DIR"
+}
+
 # Load functions and setup (same as AdGuard script)
 header_info "$APP"
 variables
@@ -25,9 +153,9 @@ catch_errors
 # Use the start function to handle all user input and variable setting (same as AdGuard script)
 start
 
-# Create container using the community scripts build system (same as AdGuard script)
+# Create container using custom function to avoid automatic installation script
 msg_info "Creating LXC container..."
-build_container
+create_custom_container
 
 # Wait for container to be ready
 msg_info "Waiting for container to be ready..."
