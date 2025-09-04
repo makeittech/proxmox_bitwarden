@@ -243,7 +243,9 @@ pct exec "$CTID" -- bash -c "
     
     if [ \"\$DOWNLOAD_SUCCESS\" = true ]; then
         echo 'Installing Bitwarden...'
-        ./bitwarden.sh install
+        echo 'Note: Running as root in Proxmox LXC container environment'
+        # Automatically answer 'y' to the root user confirmation prompt
+        echo 'y' | ./bitwarden.sh install
         if [ \$? -ne 0 ]; then
             echo 'Bitwarden installation failed'
             exit 1
@@ -251,7 +253,8 @@ pct exec "$CTID" -- bash -c "
         
         # Start Bitwarden
         echo 'Starting Bitwarden...'
-        ./bitwarden.sh start
+        # Automatically answer 'y' to any prompts during start
+        echo 'y' | ./bitwarden.sh start
         if [ \$? -ne 0 ]; then
             echo 'Failed to start Bitwarden'
             exit 1
@@ -285,7 +288,8 @@ pct exec "$CTID" -- bash -c "
         echo 'Bitwarden is running successfully'
     else
         echo 'Bitwarden is not running, attempting to start...'
-        ./bitwarden.sh start
+        # Automatically answer 'y' to any prompts during start
+        echo 'y' | ./bitwarden.sh start
         sleep 5
         if ./bitwarden.sh status | grep -q 'running'; then
             echo 'Bitwarden started successfully'
