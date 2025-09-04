@@ -205,11 +205,39 @@ pct exec "$CTID" -- bash -c "
     mkdir -p /opt/bitwarden
     cd /opt/bitwarden
     
-    # Download and setup Bitwarden
-    curl -Lso bitwarden.sh https://func.bitwarden.com/api/dl/?app=self-host >/dev/null 2>&1
+    # Download Bitwarden installer
+    msg_info 'Downloading Bitwarden installer...'
+    curl -Lso bitwarden.sh https://func.bitwarden.com/api/dl/?app=self-host
+    if [ \$? -ne 0 ]; then
+        echo 'Failed to download Bitwarden installer'
+        exit 1
+    fi
+    
     chmod +x bitwarden.sh
-    ./bitwarden.sh install --acceptlicense >/dev/null 2>&1
-" || msg_warn "Bitwarden setup had some issues"
+    
+    # Install Bitwarden
+    msg_info 'Installing Bitwarden...'
+    ./bitwarden.sh install --acceptlicense
+    if [ \$? -ne 0 ]; then
+        echo 'Bitwarden installation failed'
+        exit 1
+    fi
+    
+    # Start Bitwarden
+    msg_info 'Starting Bitwarden...'
+    ./bitwarden.sh start
+    if [ \$? -ne 0 ]; then
+        echo 'Failed to start Bitwarden'
+        exit 1
+    fi
+    
+    echo 'Bitwarden setup completed successfully'
+" || {
+    msg_error "Bitwarden setup failed!"
+    msg_info "Checking container logs..."
+    pct exec "$CTID" -- bash -c "cd /opt/bitwarden && ls -la && cat logs/bitwarden.log 2>/dev/null || echo 'No log file found'"
+    exit 1
+}
 
 # Final restart
 msg_info "Final container restart..."
@@ -217,6 +245,25 @@ pct reboot "$CTID"
 
 # Wait for restart
 sleep 15
+
+# Verify Bitwarden is running
+msg_info "Verifying Bitwarden is running..."
+pct exec "$CTID" -- bash -c "
+    cd /opt/bitwarden
+    if ./bitwarden.sh status | grep -q 'running'; then
+        echo 'Bitwarden is running successfully'
+    else
+        echo 'Bitwarden is not running, attempting to start...'
+        ./bitwarden.sh start
+        sleep 5
+        if ./bitwarden.sh status | grep -q 'running'; then
+            echo 'Bitwarden started successfully'
+        else
+            echo 'Failed to start Bitwarden'
+            exit 1
+        fi
+    fi
+" || msg_warn "Bitwarden may not be running properly"
 
 # Get container IP address
 CONTAINER_IP=$(pct exec "$CTID" ip a s dev eth0 | awk '/inet / {print $2}' | cut -d/ -f1)
