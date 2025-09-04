@@ -24,7 +24,7 @@ Create a [Proxmox](https://www.proxmox.com/en/) LXC container running Ubuntu and
 
 - Proxmox VE 8.x or 9.x
 - Root access to Proxmox host
-- At least 2GB RAM and 10GB storage available
+- At least 2GB RAM and 8GB storage available
 
 ### Installation
 
@@ -58,7 +58,7 @@ The script uses the community scripts interface and allows you to configure:
 - **Container OS**: Ubuntu 22.04 LTS
 - **CPU Cores**: 2
 - **RAM**: 4GB
-- **Disk Space**: 50GB
+- **Disk Space**: 8GB
 - **Container Type**: Unprivileged (recommended)
 - **Network**: DHCP (auto-detected)
 
@@ -86,7 +86,7 @@ Access Bitwarden at: http://[CONTAINER_IP]:8080
 
 If you encounter container creation errors:
 
-1. **Check storage space**: Ensure at least 10GB free space
+1. **Check storage space**: Ensure at least 8GB free space
 2. **Verify storage configuration**: Storage must support containers
 3. **Check Proxmox version**: Ensure you're running 8.x or 9.x
 
