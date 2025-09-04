@@ -89,12 +89,8 @@ sleep 15
 
 msg_ok "Container and app setup complete!"
 msg_info "Container ID: $CTID"
-msg_info "Hostname: $HOSTNAME"
-if [[ "$IP_CONFIG" != "auto" && "$IP_CONFIG" != "dhcp" ]]; then
-    msg_info "Access Bitwarden at: http://$IP_CONFIG:8080"
-else
-    msg_info "Container is using DHCP. Check Proxmox interface for assigned IP."
-fi
+msg_info "Hostname: $HN"
+msg_info "Access Bitwarden at: http://\$(pct exec $CTID ip a s dev eth0 | awk '/inet / {print \$2}' | cut -d/ -f1):8080"
 
 echo "###########################"
 echo "Setup : complete"
