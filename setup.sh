@@ -12,6 +12,7 @@ var_disk="${var_disk:-8}"
 var_os="${var_os:-ubuntu}"
 var_version="${var_version:-22.04}"
 var_unprivileged="${var_unprivileged:-1}"
+var_install="${var_install:-}"
 
 # Load functions and setup (same as AdGuard script)
 header_info "$APP"
