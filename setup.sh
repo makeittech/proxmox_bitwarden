@@ -17,6 +17,8 @@ var_install="${var_install:-}"
 # Load functions and setup (same as AdGuard script)
 header_info "$APP"
 variables
+# Override var_install to prevent automatic installation script download
+var_install=""
 color
 catch_errors
 
