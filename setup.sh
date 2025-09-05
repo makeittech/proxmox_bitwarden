@@ -290,6 +290,32 @@ pct exec "$CTID" -- bash -c "
             INSTALL_EXIT_CODE=\$?
         fi
         
+        # Check if installation actually completed by looking for compose files
+        if [ \$INSTALL_EXIT_CODE -eq 0 ]; then
+            echo 'Checking if installation completed successfully...'
+            echo 'Contents of bwdata directory:'
+            find /opt/bitwarden/bwdata -type f 2>/dev/null | head -20
+            echo 'Looking for docker-compose.yml...'
+            if [ ! -f '/opt/bitwarden/bwdata/docker/docker-compose.yml' ]; then
+                echo 'Docker compose file not found, installation may not have completed'
+                echo 'Attempting to manually complete installation...'
+                
+                # Try to run the installation again with more inputs
+                echo 'Retrying installation with extended inputs...'
+                printf 'y\n%s\nn\nvault\nn\nn\nn\nn\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | ./bitwarden.sh install
+                INSTALL_EXIT_CODE=\$?
+                
+                # If still no compose file, try to generate it manually
+                if [ ! -f '/opt/bitwarden/bwdata/docker/docker-compose.yml' ] && [ -f '/opt/bitwarden/bwdata/scripts/run.sh' ]; then
+                    echo 'Attempting to run installation script manually...'
+                    cd /opt/bitwarden/bwdata
+                    chmod +x scripts/run.sh
+                    ./scripts/run.sh install /opt/bitwarden/bwdata 2024.12.1 2024.12.1 2024.8.0
+                    INSTALL_EXIT_CODE=\$?
+                fi
+            fi
+        fi
+        
         if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
             echo \"Bitwarden installation failed with exit code: \$INSTALL_EXIT_CODE\"
             echo 'Checking installation directory...'
