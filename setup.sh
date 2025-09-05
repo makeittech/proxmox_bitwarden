@@ -333,6 +333,8 @@ pct exec "$CTID" -- bash -c "
         
         # Start Bitwarden
         echo 'Starting Bitwarden...'
+        # Ensure we're in the correct directory for the start command
+        cd /opt/bitwarden
         # Automatically answer 'y' to any prompts during start
         echo 'y' | ./bitwarden.sh start
         if [ \$? -ne 0 ]; then
@@ -368,6 +370,8 @@ pct exec "$CTID" -- bash -c "
         echo 'Bitwarden is running successfully'
     else
         echo 'Bitwarden is not running, attempting to start...'
+        # Ensure we're in the correct directory
+        cd /opt/bitwarden
         # Automatically answer 'y' to any prompts during start
         echo 'y' | ./bitwarden.sh start
         sleep 5
