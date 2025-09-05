@@ -260,11 +260,35 @@ pct exec "$CTID" -- bash -c "
         # Set environment variables to help with non-interactive installation
         export DEBIAN_FRONTEND=noninteractive
         export BITWARDEN_ACCEPT_EULA=true
+        export DOCKER_BUILDKIT=0
+        export COMPOSE_DOCKER_CLI_BUILD=0
         
-        # Provide comprehensive inputs for all possible prompts
-        # Include extra inputs to handle any additional prompts
-        printf 'y\n%s\nn\nvault\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | ./bitwarden.sh install
-        INSTALL_EXIT_CODE=\$?
+        # Try multiple approaches to handle TTY issues
+        echo 'Attempting installation with TTY workarounds...'
+        
+        # Method 1: Try with script command if available
+        if command -v script >/dev/null 2>&1; then
+            echo 'Method 1: Using script command to create pseudo-TTY'
+            printf 'y\n%s\nn\nvault\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | script -q -c './bitwarden.sh install' /dev/null
+            INSTALL_EXIT_CODE=\$?
+        else
+            echo 'Method 1 failed: script command not available'
+            INSTALL_EXIT_CODE=1
+        fi
+        
+        # Method 2: Try with unbuffer if available
+        if [ \$INSTALL_EXIT_CODE -ne 0 ] && command -v unbuffer >/dev/null 2>&1; then
+            echo 'Method 2: Using unbuffer to handle TTY'
+            printf 'y\n%s\nn\nvault\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | unbuffer ./bitwarden.sh install
+            INSTALL_EXIT_CODE=\$?
+        fi
+        
+        # Method 3: Try direct installation with stdbuf
+        if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
+            echo 'Method 3: Using stdbuf for direct installation'
+            printf 'y\n%s\nn\nvault\nn\nn\nn\nn\n' \"\$CONTAINER_IP\" | stdbuf -oL -eL ./bitwarden.sh install
+            INSTALL_EXIT_CODE=\$?
+        fi
         
         if [ \$INSTALL_EXIT_CODE -ne 0 ]; then
             echo \"Bitwarden installation failed with exit code: \$INSTALL_EXIT_CODE\"
